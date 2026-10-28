@@ -208,6 +208,28 @@ button:active {
   align-items: center;
   gap: 12px;
 }
+.api-settings-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid rgba(206, 188, 140, 0.35);
+  border-radius: 3px;
+  color: var(--gold);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.api-settings-button:hover {
+  border-color: var(--gold);
+  background: rgba(206, 188, 140, 0.08);
+}
+.api-key-indicator {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #99b7a0;
+}
 .lab-link {
   font:
     11px Georgia,
@@ -740,6 +762,13 @@ button:active {
 }
 .model-settings:hover {
   color: var(--gold);
+}
+.model-status {
+  margin: 9px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: #a0b2a7;
+  overflow-wrap: anywhere;
 }
 .chart-view .scene-shade {
   background: linear-gradient(
@@ -1897,5 +1926,39 @@ button:active {
   }
   .landscape {
     transform: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .site-header,
+  .chart-view .site-header {
+    height: auto;
+    min-height: 116px;
+    padding: 14px 0 7px;
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .site-header nav {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0;
+  }
+  .site-header nav button,
+  .site-header nav button:first-child,
+  .site-header nav button:nth-child(2) {
+    display: inline-block;
+    padding: 8px 0;
+  }
+  .site-header nav button.active:after {
+    bottom: 0;
+  }
+  .api-settings-button {
+    padding: 7px 9px;
+    font-size: 11px;
+  }
+  .home {
+    min-height: calc(100svh - 116px);
   }
 }

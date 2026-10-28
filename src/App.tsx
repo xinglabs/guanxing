@@ -409,7 +409,7 @@ function Settings({
     }
   };
   return (
-    <Modal title="连接你的模型" onClose={onClose}>
+    <Modal title="模型与 API Key 设置" onClose={onClose}>
       <div className="form-heading">
         <span className="chapter">你的模型，你的选择</span>
         <h2>
@@ -418,6 +418,7 @@ function Settings({
           多一个解读的视角。
         </h2>
         <p>使用兼容 OpenAI 的模型服务。费用由服务商按你的账户计费。</p>
+        <p>可随时从页头「API 设置」重新打开，修改或清除 Key。</p>
       </div>
       <form className="birth-form" onSubmit={submit}>
         <label>
@@ -746,6 +747,18 @@ export default function App() {
           <button onClick={() => setModal("about")}>关于观星</button>
         </nav>
         <div className="header-tools">
+          <button
+            className="api-settings-button"
+            onClick={() => setModal("settings")}
+            aria-haspopup="dialog"
+            title="修改模型、服务地址或 API Key"
+          >
+            <Settings2 size={15} />
+            API 设置
+            {config.apiKey && (
+              <span className="api-key-indicator" aria-label="Key 已填写" />
+            )}
+          </button>
           <a
             className="lab-link"
             href="https://xinglabs.github.io/"
@@ -997,9 +1010,16 @@ export default function App() {
                         onClick={() => setModal("settings")}
                       >
                         <Settings2 size={14} />
-                        {config.apiKey ? config.model : "连接你的模型"}
+                        {config.apiKey
+                          ? "修改模型 / API Key"
+                          : "设置模型 / API Key"}
                         <ArrowUpRight size={13} />
                       </button>
+                      <p className="model-status">
+                        {config.apiKey
+                          ? `当前模型：${config.model} · Key 已填写`
+                          : "尚未填写 API Key"}
+                      </p>
                     </div>
                     <div className="topics">
                       {topics.map((t) => (
@@ -1096,6 +1116,12 @@ export default function App() {
             controller.current = null;
             setBusy(false);
             setConfig(c);
+            setAiError("");
+            setNotice(
+              c.apiKey
+                ? "设置已保存，可随时从页头「API 设置」修改。"
+                : "当前 API Key 已清除。",
+            );
           }}
           onClose={() => setModal(null)}
         />
