@@ -1,0 +1,45 @@
+name: guanxing
+
+services:
+  db:
+    image: "${PGVECTOR_IMAGE:-pgvector/pgvector:pg17}"
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: guanxing
+      POSTGRES_USER: guanxing
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Run ./scripts/start-local.sh to create the local password}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guanxing -d guanxing"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      args:
+        NODE_IMAGE: "${NODE_IMAGE:-node:22-bookworm-slim}"
+    restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      APP_ORIGIN: "http://127.0.0.1:${APP_PORT:-3000},http://localhost:${APP_PORT:-3000}"
+      DATABASE_URL: "postgresql://guanxing:${POSTGRES_PASSWORD}@db:5432/guanxing"
+      MODEL_ALLOWED_HOSTS: "${MODEL_ALLOWED_HOSTS:-api.deepseek.com,api.openai.com,openrouter.ai,localhost,127.0.0.1}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  pgdata:

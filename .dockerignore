@@ -1,0 +1,17 @@
+.git
+.github
+node_modules
+dist
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+coverage
+test-results
+playwright-report
+work
+data
+backups
+*.dump
+*.log

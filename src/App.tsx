@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
   ArrowUpRight,
@@ -26,6 +26,8 @@ import {
 import type { ChartInput, ZiweiChart, Palace } from "./lib/chart";
 import { readChart, resolveEndpoint, aiPrivacyNote } from "./lib/ai";
 import type { AIConfig } from "./lib/ai";
+
+const Workspace = lazy(() => import("./Workspace"));
 
 const hours = [
   "子时 · 23:00–00:59",
@@ -549,7 +551,13 @@ function Report({ text }: { text: string }) {
   );
 }
 export default function App() {
-  const [view, setView] = useState<"home" | "chart">("home"),
+  const [view, setView] = useState<"home" | "chart" | "agent" | "admin">(() =>
+      location.hash === "#admin"
+        ? "admin"
+        : location.hash === "#agent"
+          ? "agent"
+          : "home",
+    ),
     [modal, setModal] = useState<"birth" | "settings" | "about" | null>(null);
   const [input, setInput] = useState<ChartInput>({
       date: "",
@@ -677,6 +685,22 @@ export default function App() {
     setNotice("命盘已导出为文字文件。");
   };
   const current = chart?.palaces.find((p) => p.branch === selected);
+  if (view === "agent" || view === "admin")
+    return (
+      <Suspense
+        fallback={<div style={{ padding: "10vh 10vw" }}>正在打开工作台…</div>}
+      >
+        <Workspace
+          initialTab={view}
+          birth={chart ? input : undefined}
+          onExit={() => {
+            history.replaceState(null, "", location.pathname + location.search);
+            setView("home");
+          }}
+        />
+      </Suspense>
+    );
+
   return (
     <div
       className={`app ${paused ? "paused" : ""} ${view === "chart" ? "chart-view" : ""}`}
@@ -710,6 +734,14 @@ export default function App() {
             onClick={() => (chart ? setView("chart") : setModal("birth"))}
           >
             我的命盘
+          </button>
+          <button
+            onClick={() => {
+              controller.current?.abort();
+              setView("agent");
+            }}
+          >
+            Agent 工作台
           </button>
           <button onClick={() => setModal("about")}>关于观星</button>
         </nav>

@@ -15,6 +15,22 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: guanxing_ci
+          POSTGRES_USER: guanxing
+          POSTGRES_PASSWORD: ephemeral-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U guanxing -d guanxing_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgresql://guanxing:ephemeral-ci-only@127.0.0.1:5432/guanxing_ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
