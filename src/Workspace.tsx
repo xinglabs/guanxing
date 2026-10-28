@@ -44,7 +44,7 @@ const tabs: Array<{ id: Tab; title: string; icon: typeof MessageSquare }> = [
 const sourceLabels: Record<UsageSource, string> = {
   provider: "服务商返回",
   estimate: "估算用量",
-  unknown: "用量缺失",
+  unknown: "待核实 / 预留",
 };
 const statusLabels: Record<string, string> = {
   running: "运行中",
@@ -54,6 +54,11 @@ const statusLabels: Record<string, string> = {
   success: "成功",
   error: "失败",
   ok: "成功",
+  reserved: "额度已预留",
+  "interrupted-reservation": "运行中断 · 保留预留",
+  "network-unknown-reservation": "网络状态待核实 · 保留预留",
+  "invalid-response-reservation": "响应无效 · 保留预留",
+  "estimated-reservation": "估算 · 保留预留",
 };
 const blankModel: ModelDraft = {
   name: "",
@@ -72,6 +77,24 @@ const money = (value: number | null | undefined, currency: string) =>
   value == null
     ? "未能计价"
     : `${currency} ${value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
+const ledgerTokens = (value: number | null | undefined, source: UsageSource) =>
+  source === "unknown"
+    ? value != null && value > 0
+      ? `预留 ${number(value)}`
+      : "—"
+    : number(value);
+const ledgerCost = (
+  value: number | null | undefined,
+  currency: string,
+  source: UsageSource,
+) =>
+  source === "unknown"
+    ? value != null && value > 0
+      ? `预留 ${money(value, currency)}`
+      : "无法确认"
+    : value === 0
+      ? `${currency} 未计价 / 0 估算`
+      : money(value, currency);
 const time = (value: string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
@@ -1071,14 +1094,22 @@ export default function Workspace({
                           <p>本次响应未调用工具。</p>
                         )}
                         <p className="ws-muted">
-                          输入 {number(lastRun.usage.inputTokens)} / 输出{" "}
-                          {number(lastRun.usage.outputTokens)} tokens ·{" "}
-                          {lastRun.usage.estimatedCost === 0
-                            ? "按配置价格未计价"
-                            : money(
-                                lastRun.usage.estimatedCost,
-                                lastRun.usage.currency,
-                              )}
+                          输入{" "}
+                          {ledgerTokens(
+                            lastRun.usage.inputTokens,
+                            lastRun.usage.usageSource,
+                          )}{" "}
+                          / 输出{" "}
+                          {ledgerTokens(
+                            lastRun.usage.outputTokens,
+                            lastRun.usage.usageSource,
+                          )}{" "}
+                          tokens ·{" "}
+                          {ledgerCost(
+                            lastRun.usage.estimatedCost,
+                            lastRun.usage.currency,
+                            lastRun.usage.usageSource,
+                          )}
                         </p>
                       </details>
                       {lastRun.memoryCandidates.length > 0 && (
@@ -1573,7 +1604,7 @@ export default function Workspace({
                   <p className="ws-eyebrow">USAGE / 每一次调用都有据可查</p>
                   <h1>用量与本地数据。</h1>
                   <p>
-                    账本记录实际请求。工具循环中的各次模型调用分别计入，失败记录也会保留。
+                    账本记录请求、估算与额度预留。工具循环中的各次调用分别计入，失败或中断记录也会保留。
                   </p>
                 </div>
                 <button
@@ -1589,11 +1620,13 @@ export default function Workspace({
                 <>
                   <dl className="ws-usage-overview">
                     <div>
-                      <dt>今日已知 tokens</dt>
+                      <dt>今日记账 tokens</dt>
                       <dd>{number(dashboard.today.totalTokens)}</dd>
                       <small>
                         输入 {number(dashboard.today.inputTokens)} / 输出{" "}
                         {number(dashboard.today.outputTokens)}
+                        <br />
+                        包含服务商值、估算及额度预留
                       </small>
                     </div>
                     <div>
@@ -1605,7 +1638,7 @@ export default function Workspace({
                       <small>{number(dashboard.runs)} 次运行</small>
                     </div>
                     <div>
-                      <dt>累计估算费用 · 分币种</dt>
+                      <dt>今日估算费用 · 分币种</dt>
                       <dd className="ws-currency-totals">
                         {dashboard.costs.length ? (
                           dashboard.costs.map((cost) => (
@@ -1619,7 +1652,9 @@ export default function Workspace({
                           <span>暂无已计价费用</span>
                         )}
                       </dd>
-                      <small>按配置价格估算，非账单；0 不代表免费</small>
+                      <small>
+                        按配置价格估算，含预留；非服务商账单，0 不代表免费
+                      </small>
                     </div>
                   </dl>
                   <div className="ws-ledger-heading">
@@ -1627,7 +1662,7 @@ export default function Workspace({
                       调用账本 <span>{dashboard.usage.length} 条</span>
                     </h2>
                     <p>
-                      “用量缺失”不计作已知零用量；估算与服务商返回分别标记。
+                      预留额度用于保守记账，尚未核实；0 或缺失不代表零消耗。
                     </p>
                   </div>
                   {dashboard.usage.length ? (
@@ -1659,24 +1694,23 @@ export default function Workspace({
                               </td>
                               <td>{usage.modelName}</td>
                               <td>
-                                {usage.usageSource === "unknown"
-                                  ? "—"
-                                  : number(usage.inputTokens)}
+                                {ledgerTokens(
+                                  usage.inputTokens,
+                                  usage.usageSource,
+                                )}
                               </td>
                               <td>
-                                {usage.usageSource === "unknown"
-                                  ? "—"
-                                  : number(usage.outputTokens)}
+                                {ledgerTokens(
+                                  usage.outputTokens,
+                                  usage.usageSource,
+                                )}
                               </td>
                               <td>
-                                {usage.usageSource === "unknown"
-                                  ? "无法确认"
-                                  : usage.estimatedCost === 0
-                                    ? `${usage.currency} 未计价 / 0 估算`
-                                    : money(
-                                        usage.estimatedCost,
-                                        usage.currency,
-                                      )}
+                                {ledgerCost(
+                                  usage.estimatedCost,
+                                  usage.currency,
+                                  usage.usageSource,
+                                )}
                               </td>
                               <td>
                                 <span
@@ -1699,7 +1733,7 @@ export default function Workspace({
                     </div>
                   ) : (
                     <div className="ws-empty-state">
-                      还没有模型请求。完成一次对话后，这里会出现真实的调用记录。
+                      还没有模型请求。发起一次对话后，这里会出现请求及额度预留记录。
                     </div>
                   )}
                 </>
