@@ -125,6 +125,19 @@ test(
       await admin.end();
     });
     await t.test(
+      "idle database disconnect is handled and the pool reconnects",
+      async () => {
+        const client = await store.pool.connect();
+        const pid = (await client.query("SELECT pg_backend_pid() AS pid"))
+          .rows[0].pid;
+        client.release();
+        const disconnected = once(store.pool, "error");
+        await admin.query("SELECT pg_terminate_backend($1)", [pid]);
+        await disconnected;
+        assert.equal(await store.hasOwner(), false);
+      },
+    );
+    await t.test(
       "health exposes setup state; all workspace data require owner auth",
       async () => {
         assert.equal(

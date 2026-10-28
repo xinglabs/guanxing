@@ -75,6 +75,14 @@ export class Store {
       typeof connection === "string"
         ? new Pool({ connectionString: connection, max: 10 })
         : connection;
+    // Idle clients emit pool errors when PostgreSQL closes a connection.
+    // The pool discards those clients; keep the server alive to reconnect on demand.
+    this.pool.on("error", () => {
+      if (!this.pool.ending)
+        process.stderr.write(
+          "Database connection interrupted; a new connection will be used.\n",
+        );
+    });
     this.timezone = timezone;
   }
   async close() {
