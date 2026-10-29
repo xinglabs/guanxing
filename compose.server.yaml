@@ -1,0 +1,98 @@
+name: guanxing-server
+
+x-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: "${PGVECTOR_IMAGE:-pgvector/pgvector:pg17}"
+    restart: unless-stopped
+    mem_limit: 512m
+    shm_size: 128m
+    logging: *bounded-logging
+    environment:
+      POSTGRES_DB: guanxing
+      POSTGRES_USER: guanxing
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Run ./scripts/start-server.sh first}"
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - max_connections=30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guanxing -d guanxing"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    image: "${APP_IMAGE:-ghcr.io/xinglabs/guanxing:latest}"
+    build:
+      context: .
+      args:
+        NODE_IMAGE: "${NODE_IMAGE:-node:22-bookworm-slim}"
+    restart: unless-stopped
+    init: true
+    mem_limit: 512m
+    pids_limit: 128
+    logging: *bounded-logging
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=256
+      HOST: 0.0.0.0
+      PORT: "3000"
+      APP_MODE: public
+      APP_SECRET: "${APP_SECRET:?Run ./scripts/start-server.sh first}"
+      SETUP_TOKEN: "${SETUP_TOKEN:?Run ./scripts/start-server.sh first}"
+      APP_ORIGIN: "${APP_ORIGIN:-http://127.0.0.1:3080,http://localhost:3080}"
+      APP_TIMEZONE: Asia/Shanghai
+      TRUST_PROXY: "1"
+      DATABASE_URL: "postgresql://guanxing:${POSTGRES_PASSWORD}@db:5432/guanxing"
+      MODEL_ALLOWED_HOSTS: "${MODEL_ALLOWED_HOSTS:-api.deepseek.com,api.openai.com,openrouter.ai}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+
+  proxy:
+    image: "${CADDY_IMAGE:-caddy:2-alpine}"
+    profiles: [https]
+    restart: unless-stopped
+    mem_limit: 128m
+    pids_limit: 128
+    logging: *bounded-logging
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: "${APP_DOMAIN:-localhost}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

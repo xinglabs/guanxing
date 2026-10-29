@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { request } from "node:http";
 import pg from "pg";
@@ -215,6 +215,46 @@ test(
         assert.notEqual(stored, cookie.split("=")[1]);
         assert.match(stored, /^[a-f0-9]{64}$/);
         assert.equal((await api("/health")).data.authenticated, true);
+      },
+    );
+    await t.test(
+      "switching a public database to local mode rejects non-owner account cookies",
+      async () => {
+        const visitor = await store.createAccount({
+          username: "public-visitor",
+          passwordHash: "test-only-public-account-password-hash",
+        });
+        const token = randomBytes(32).toString("base64url");
+        const tokenHash = createHash("sha256").update(token).digest("hex");
+        assert.equal(
+          await store.addAuthSession(
+            tokenHash,
+            new Date(Date.now() + 60000),
+            visitor.id,
+          ),
+          true,
+        );
+        assert.equal((await store.authUser(tokenHash))?.id, visitor.id);
+        const headers = { Cookie: `guanxing_session=${token}`, Origin: base };
+        const health = await fetch(base + "/api/health", { headers });
+        assert.equal(health.status, 200);
+        assert.equal(
+          ((await health.json()) as { authenticated: boolean }).authenticated,
+          false,
+        );
+        for (const path of [
+          "/sessions",
+          "/models",
+          "/memories",
+          "/usage",
+          "/export",
+        ])
+          assert.equal(
+            (await fetch(base + "/api" + path, { headers })).status,
+            401,
+          );
+        assert.equal((await api("/health")).data.authenticated, true);
+        assert.equal((await api("/sessions")).response.status, 200);
       },
     );
     let sessionId = "",

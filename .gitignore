@@ -3,9 +3,11 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.server.example
 *.tsbuildinfo
 .DS_Store
 
 backups/
 data/
 *.log
+release-artifacts/

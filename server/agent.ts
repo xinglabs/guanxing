@@ -253,6 +253,7 @@ export async function runAgent({
   apiKey,
   signal,
   fetcher = fetch,
+  controlledThinking = false,
 }: {
   store: AgentStore;
   sessionId: string;
@@ -261,6 +262,7 @@ export async function runAgent({
   apiKey: string;
   signal?: AbortSignal;
   fetcher?: typeof fetch;
+  controlledThinking?: boolean;
 }): Promise<RunResult> {
   if (typeof content !== "string" || !content.trim() || content.length > 12000)
     throw new AgentError("请输入 1—12000 字的内容。");
@@ -407,6 +409,10 @@ export async function runAgent({
             max_tokens: maxOutput,
             temperature: 0.5,
             stream: false,
+            ...(controlledThinking &&
+            new URL(endpoint).hostname === "api.deepseek.com"
+              ? { thinking: { type: "disabled" } }
+              : {}),
           }),
         });
       } catch {

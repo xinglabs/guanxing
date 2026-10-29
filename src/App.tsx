@@ -587,6 +587,38 @@ export default function App() {
     [busy, setBusy] = useState(false),
     [aiError, setAiError] = useState("");
   const controller = useRef<AbortController | null>(null);
+  const [hosted, setHosted] = useState(false);
+  const [workspaceQuestion, setWorkspaceQuestion] = useState("");
+  useEffect(() => {
+    if (view === "agent" || view === "admin")
+      history.replaceState(
+        null,
+        "",
+        location.pathname + location.search + "#" + view,
+      );
+  }, [view]);
+  useEffect(() => {
+    const signal = new AbortController();
+    const timeout = setTimeout(() => signal.abort(), 5000);
+    void fetch("/api/health", {
+      signal: signal.signal,
+      credentials: "same-origin",
+    })
+      .then((r) =>
+        r.ok && r.headers.get("content-type")?.includes("application/json")
+          ? r.json()
+          : null,
+      )
+      .then((data) => {
+        if (data?.mode === "public") setHosted(true);
+      })
+      .catch(() => {})
+      .finally(() => clearTimeout(timeout));
+    return () => {
+      clearTimeout(timeout);
+      signal.abort();
+    };
+  }, []);
 
   useEffect(() => {
     const change = () => setFull(Boolean(document.fullscreenElement));
@@ -635,6 +667,11 @@ export default function App() {
   };
   const startReading = async () => {
     if (!chart) return;
+    if (hosted) {
+      setWorkspaceQuestion(question.trim() || questions[topic]);
+      setView("agent");
+      return;
+    }
     if (!config.apiKey) {
       setModal("settings");
       return;
@@ -693,8 +730,10 @@ export default function App() {
       >
         <Workspace
           initialTab={view}
+          initialQuestion={workspaceQuestion}
           birth={chart ? input : undefined}
           onExit={() => {
+            setWorkspaceQuestion("");
             history.replaceState(null, "", location.pathname + location.search);
             setView("home");
           }}
@@ -749,13 +788,13 @@ export default function App() {
         <div className="header-tools">
           <button
             className="api-settings-button"
-            onClick={() => setModal("settings")}
-            aria-haspopup="dialog"
-            title="修改模型、服务地址或 API Key"
+            onClick={() => (hosted ? setView("admin") : setModal("settings"))}
+            aria-haspopup={hosted ? undefined : "dialog"}
+            title={hosted ? "账号与管理设置" : "修改模型、服务地址或 API Key"}
           >
             <Settings2 size={15} />
-            API 设置
-            {config.apiKey && (
+            {hosted ? "账号设置" : "API 设置"}
+            {!hosted && config.apiKey && (
               <span className="api-key-indicator" aria-label="Key 已填写" />
             )}
           </button>
@@ -819,8 +858,9 @@ export default function App() {
               </button>
             </div>
             <div className="hero-footnote">
-              <span className="dot" /> 本机排盘 <i /> 无需注册 <i /> 可连接你的
-              AI
+              <span className="dot" /> 本机排盘 <i />
+              {hosted ? "登录后保存解读" : "无需注册"} <i />
+              {hosted ? "AI 工作台" : "可连接你的 AI"}
             </div>
           </div>
           <Astrolabe paused={paused} />
@@ -1005,20 +1045,24 @@ export default function App() {
                     <div className="ai-intro">
                       <span className="chapter">多一种理解自己的可能</span>
                       <h2>你想了解什么？</h2>
-                      <button
-                        className="model-settings"
-                        onClick={() => setModal("settings")}
-                      >
-                        <Settings2 size={14} />
-                        {config.apiKey
-                          ? "修改模型 / API Key"
-                          : "设置模型 / API Key"}
-                        <ArrowUpRight size={13} />
-                      </button>
+                      {!hosted && (
+                        <button
+                          className="model-settings"
+                          onClick={() => setModal("settings")}
+                        >
+                          <Settings2 size={14} />
+                          {config.apiKey
+                            ? "修改模型 / API Key"
+                            : "设置模型 / API Key"}
+                          <ArrowUpRight size={13} />
+                        </button>
+                      )}
                       <p className="model-status">
-                        {config.apiKey
-                          ? `当前模型：${config.model} · Key 已填写`
-                          : "尚未填写 API Key"}
+                        {hosted
+                          ? "登录后即可解读，报告和记忆保存在你的账号中。"
+                          : config.apiKey
+                            ? `当前模型：${config.model} · Key 已填写`
+                            : "尚未填写 API Key"}
                       </p>
                     </div>
                     <div className="topics">
@@ -1045,15 +1089,21 @@ export default function App() {
                       disabled={busy}
                     />
                     <p className="ai-consent">
-                      点击解读，将命盘星曜与问题发送到{" "}
-                      {(() => {
-                        try {
-                          return new URL(config.baseUrl).hostname;
-                        } catch {
-                          return "你配置的服务";
-                        }
-                      })()}
-                      。不附带称呼及完整生日。
+                      {hosted ? (
+                        "进入工作台后，确认附带当前命盘再提交。解读由网站配置的 AI 模型生成。"
+                      ) : (
+                        <>
+                          点击解读，将命盘星曜与问题发送到{" "}
+                          {(() => {
+                            try {
+                              return new URL(config.baseUrl).hostname;
+                            } catch {
+                              return "你配置的服务";
+                            }
+                          })()}
+                          。不附带称呼及完整生日。
+                        </>
+                      )}
                     </p>
                     {busy ? (
                       <button
@@ -1065,7 +1115,11 @@ export default function App() {
                       </button>
                     ) : (
                       <button className="primary" onClick={startReading}>
-                        {config.apiKey ? "开始 AI 解读" : "连接模型，开始解读"}
+                        {hosted
+                          ? "进入工作台解读"
+                          : config.apiKey
+                            ? "开始 AI 解读"
+                            : "连接模型，开始解读"}
                         <ArrowUpRight size={18} />
                       </button>
                     )}
@@ -1144,9 +1198,9 @@ export default function App() {
             <p>{chartConvention}</p>
             <h3>你的信息留在哪里</h3>
             <p>
-              出生信息在浏览器中计算。页面不使用分析追踪，不保存历史命盘。只有主动请求
-              AI
-              时，才会向你填写的服务地址发送命盘星曜与问题。密钥仅保存在内存里。
+              {hosted
+                ? "星图在浏览器中计算。登录工作台后，你发送的对话、附带的命盘和确认的记忆会保存在本站数据库，按账号分别管理。请求 AI 时，相关问题、对话、记忆与命盘星曜会发送给站点配置的模型服务。模型密钥由管理员设置并加密保存。"
+                : "星图在浏览器中计算，静态页面不保存历史命盘。主动请求 AI 时，命盘星曜与问题才会发送给你填写的服务地址，Key 仅在本次页面内存中保留。本地 Agent 工作台会另外保存你主动提交的对话、命盘和记忆。"}
             </p>
             <h3>愿你把答案，带回生活</h3>
             <p>

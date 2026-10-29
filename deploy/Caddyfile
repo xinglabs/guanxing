@@ -1,0 +1,7 @@
+{$DOMAIN} {
+    encode zstd gzip
+    reverse_proxy app:3000 {
+        # Always replace a browser-supplied value. The API trusts this proxy.
+        header_up X-Real-IP {remote_host}
+    }
+}

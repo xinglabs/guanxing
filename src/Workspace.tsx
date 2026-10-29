@@ -18,6 +18,9 @@ import {
   Bookmark,
   Cpu,
   Activity,
+  UserRound,
+  Settings2,
+  ShieldCheck,
 } from "lucide-react";
 import type { ChartInput } from "./lib/chart";
 import { workspaceApi as api, WorkspaceError } from "./workspace-api";
@@ -30,16 +33,24 @@ import type {
   Session,
   SessionDetail,
   UsageSource,
+  Health,
+  Account,
+  SiteSettings,
+  AgentJob,
+  AccountUsage,
 } from "./workspace-api";
 import "./workspace.css";
 
-type Tab = "chat" | "memories" | "models" | "usage";
-type Gate = "loading" | "unavailable" | "setup" | "login" | "ready";
+type Tab = "chat" | "memories" | "models" | "usage" | "account" | "site";
+type Gate =
+  "loading" | "unavailable" | "setup" | "login" | "register" | "ready";
 const tabs: Array<{ id: Tab; title: string; icon: typeof MessageSquare }> = [
   { id: "chat", title: "对话", icon: MessageSquare },
   { id: "memories", title: "记忆", icon: Bookmark },
   { id: "models", title: "模型", icon: Cpu },
   { id: "usage", title: "用量", icon: Activity },
+  { id: "account", title: "账号", icon: UserRound },
+  { id: "site", title: "站点管理", icon: Settings2 },
 ];
 const sourceLabels: Record<UsageSource, string> = {
   provider: "服务商返回",
@@ -47,6 +58,7 @@ const sourceLabels: Record<UsageSource, string> = {
   unknown: "待核实 / 预留",
 };
 const statusLabels: Record<string, string> = {
+  queued: "等待处理",
   running: "运行中",
   completed: "已完成",
   failed: "失败",
@@ -193,7 +205,7 @@ function MemoryRow({
         >
           {memory.status === "pending" ? "等待你确认" : "已确认"}
         </span>
-        <span>{memory.sessionId ? "会话记忆" : "全局记忆"}</span>
+        <span>{memory.sessionId ? "会话记忆" : "我的跨会话记忆"}</span>
         <span>{memory.hasEmbedding ? "已建立向量" : "未建立向量"}</span>
         <time>{time(memory.updatedAt)}</time>
       </div>
@@ -268,16 +280,314 @@ function MemoryRow({
   );
 }
 
+function ServerKeyForm({
+  model,
+  onChange,
+  onError,
+}: {
+  model: ModelProfile;
+  onChange: () => Promise<void>;
+  onError: (error: unknown) => void;
+}) {
+  const [key, setKey] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [working, setWorking] = useState(false);
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setWorking(true);
+    try {
+      await api.saveSecret(model.id, key.trim());
+      setKey("");
+      setEditing(false);
+      await onChange();
+    } catch (error) {
+      onError(error);
+    } finally {
+      setWorking(false);
+    }
+  }
+  return (
+    <div className="ws-secret">
+      <div className="ws-row-actions">
+        <span className={model.hosted ? "ws-active" : "ws-pending"}>
+          <KeyRound size={13} />{" "}
+          {model.hosted ? "服务密钥已配置" : "尚未配置服务密钥"}
+        </span>
+        <button
+          className="ws-action"
+          disabled={working}
+          onClick={() => {
+            setKey("");
+            setEditing(!editing);
+          }}
+        >
+          {editing ? "收起" : model.hosted ? "更换密钥" : "配置密钥"}
+        </button>
+      </div>
+      {editing && (
+        <form onSubmit={save} className="ws-secret-form">
+          <label>
+            新的 API Key
+            <input
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              required
+              value={key}
+              onChange={(event) => setKey(event.target.value)}
+              maxLength={2048}
+              placeholder="密钥不会回显"
+            />
+          </label>
+          <p className="ws-muted">
+            加密保存在服务器，供站点调用。普通用户无法查看。先设置每日 token
+            上限，再启用共享服务。
+          </p>
+          <div className="ws-row-actions">
+            <button
+              className="ws-button primary"
+              disabled={working || !key.trim()}
+            >
+              保存密钥
+            </button>
+            {model.hosted && (
+              <button
+                className="ws-button"
+                type="button"
+                disabled={working}
+                onClick={async () => {
+                  setWorking(true);
+                  try {
+                    await api.clearSecret(model.id);
+                    setKey("");
+                    setEditing(false);
+                    await onChange();
+                  } catch (error) {
+                    onError(error);
+                  } finally {
+                    setWorking(false);
+                  }
+                }}
+              >
+                清除服务密钥
+              </button>
+            )}
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function PasswordForm({
+  onSaved,
+  onError,
+}: {
+  onSaved: () => void;
+  onError: (error: unknown) => void;
+}) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [working, setWorking] = useState(false);
+  return (
+    <form
+      className="ws-account-form"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (next !== confirm) {
+          onError(new Error("两次输入的新密码不一致。"));
+          return;
+        }
+        setWorking(true);
+        try {
+          await api.changePassword(current, next);
+          setCurrent("");
+          setNext("");
+          setConfirm("");
+          onSaved();
+        } catch (error) {
+          onError(error);
+        } finally {
+          setWorking(false);
+        }
+      }}
+    >
+      <h2>修改密码</h2>
+      <label>
+        当前密码
+        <input
+          type="password"
+          autoComplete="current-password"
+          required
+          value={current}
+          onChange={(event) => setCurrent(event.target.value)}
+        />
+      </label>
+      <label>
+        新密码
+        <input
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={12}
+          maxLength={1024}
+          value={next}
+          onChange={(event) => setNext(event.target.value)}
+          placeholder="至少 12 个字符"
+        />
+      </label>
+      <label>
+        确认新密码
+        <input
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={12}
+          value={confirm}
+          onChange={(event) => setConfirm(event.target.value)}
+        />
+      </label>
+      <button className="ws-button primary" disabled={working}>
+        更新密码
+      </button>
+    </form>
+  );
+}
+
+function AccountRow({
+  user,
+  selfId,
+  onChange,
+  onError,
+}: {
+  user: Account;
+  selfId?: string;
+  onChange: () => Promise<void>;
+  onError: (error: unknown) => void;
+}) {
+  const [resetting, setResetting] = useState(false);
+  const [password, setPassword] = useState("");
+  const [working, setWorking] = useState(false);
+  return (
+    <article className="ws-user-row">
+      <div className="ws-user-title">
+        <div>
+          <strong>{user.username}</strong>
+          <span>
+            {user.role === "admin" ? "管理员" : "普通用户"}
+            {user.id === selfId ? " · 当前账号" : ""}
+          </span>
+        </div>
+        <span className={user.disabled ? "ws-pending" : "ws-active"}>
+          {user.disabled ? "已停用" : "正常"}
+        </span>
+      </div>
+      {user.createdAt && (
+        <p className="ws-muted">注册于 {time(user.createdAt)}</p>
+      )}
+      {user.id !== selfId && (
+        <div className="ws-row-actions">
+          <button
+            className="ws-action"
+            disabled={working}
+            onClick={async () => {
+              setWorking(true);
+              try {
+                await api.updateUser(user.id, !user.disabled);
+                await onChange();
+              } catch (error) {
+                onError(error);
+              } finally {
+                setWorking(false);
+              }
+            }}
+          >
+            {user.disabled ? "恢复账号" : "停用账号"}
+          </button>
+          <button
+            className="ws-action"
+            disabled={working}
+            onClick={() => {
+              setResetting(!resetting);
+              setPassword("");
+            }}
+          >
+            {resetting ? "取消重置" : "重置密码"}
+          </button>
+        </div>
+      )}
+      {resetting && (
+        <form
+          className="ws-reset-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setWorking(true);
+            try {
+              await api.resetUserPassword(user.id, password);
+              setPassword("");
+              setResetting(false);
+              await onChange();
+            } catch (error) {
+              onError(error);
+            } finally {
+              setWorking(false);
+            }
+          }}
+        >
+          <label>
+            为该用户设置新密码
+            <input
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={12}
+              maxLength={1024}
+              placeholder="至少 12 个字符"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+          <button className="ws-button" disabled={working}>
+            确认重置并退出旧登录
+          </button>
+        </form>
+      )}
+    </article>
+  );
+}
+
 export default function Workspace({
   initialTab,
   birth,
+  initialQuestion,
   onExit,
 }: {
   initialTab: "agent" | "admin";
   birth?: ChartInput;
+  initialQuestion?: string;
   onExit: () => void;
 }) {
   const [gate, setGate] = useState<Gate>("loading");
+  const [health, setHealth] = useState<Health | null>(null);
+  const [username, setUsername] = useState("");
+  const [setupToken, setSetupToken] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [accountUsage, setAccountUsage] = useState<AccountUsage | null>(null);
+  const [siteSettings, setSiteSettings] = useState<SiteSettings | null>(null);
+  const [users, setUsers] = useState<Account[]>([]);
+  const [activeJob, setActiveJob] = useState<AgentJob | null>(null);
+  const [pollVersion, setPollVersion] = useState(0);
+  const [pollPaused, setPollPaused] = useState(false);
+  const pendingSubmission = useRef<{
+    sessionId: string;
+    modelId: string;
+    content: string;
+    idempotencyKey: string;
+  } | null>(null);
+  const publicMode = health?.mode === "public";
+  const isAdmin = health?.user?.role === "admin";
+  const canManageModels = !publicMode || isAdmin;
   const [tab, setTab] = useState<Tab>(
     initialTab === "admin" ? "usage" : "chat",
   );
@@ -297,10 +607,12 @@ export default function Workspace({
   const [detailLoading, setDetailLoading] = useState(false);
   const [title, setTitle] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
-  const [attachBirth, setAttachBirth] = useState(false);
+  const [attachBirth, setAttachBirth] = useState(
+    Boolean(birth && initialQuestion),
+  );
   const [modelId, setModelId] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(initialQuestion || "");
   const [lastRun, setLastRun] = useState<RunResult | null>(null);
   const [memoryFilter, setMemoryFilter] = useState<
     "all" | "active" | "pending"
@@ -314,8 +626,24 @@ export default function Workspace({
   const runController = useRef<AbortController | null>(null);
   const selectedId = useRef<string | null>(null);
   const alive = useRef(true);
+  const accountEpoch = useRef(0);
   const messageEnd = useRef<HTMLDivElement>(null);
   const currentModel = models.find((model) => model.id === modelId);
+  const activeJobRef = useRef<AgentJob | null>(null);
+  activeJobRef.current = activeJob;
+  const visibleTabs = tabs.filter((item) => {
+    if (item.id === "models") return canManageModels;
+    if (item.id === "account") return publicMode;
+    if (item.id === "site") return publicMode && isAdmin;
+    return true;
+  });
+  const publicModelReady = Boolean(
+    currentModel?.enabled && currentModel?.hosted,
+  );
+  const displayJob =
+    activeJob && (!sessionId || activeJob.sessionId === sessionId)
+      ? activeJob
+      : null;
   const latestRun = detail?.runs.reduce(
     (latest, run) => (run.createdAt > latest.createdAt ? run : latest),
     detail.runs[0],
@@ -327,6 +655,7 @@ export default function Workspace({
   function report(error: unknown) {
     if (!alive.current) return;
     if (error instanceof WorkspaceError && error.status === 401) {
+      accountEpoch.current++;
       setGate("login");
       setDeleteTarget(null);
       setApiKey("");
@@ -335,28 +664,95 @@ export default function Workspace({
       setSessions([]);
       setModels([]);
       setMemories([]);
+      setUsers([]);
+      setSiteSettings(null);
+      setAccountUsage(null);
+      setLastRun(null);
+      setPrompt("");
+      setTitle("");
+      setNewMemory("");
+      setSessionId(null);
+      selectedId.current = null;
+      pendingSubmission.current = null;
+      setActiveJob(null);
+      setRunning(false);
+      setHealth((current) =>
+        current ? { ...current, authenticated: false, user: null } : current,
+      );
     }
     setError(messageFor(error));
   }
-  async function loadAll() {
-    const [sessionData, modelData, memoryData, usageData] = await Promise.all([
+  async function loadAll(currentHealth = health) {
+    const epoch = accountEpoch.current;
+    const online = currentHealth?.mode === "public";
+    const loaded = await Promise.all([
       api.sessions(),
       api.models(),
       api.memories(),
-      api.usage(),
-    ]);
-    if (!alive.current) return;
+      online && currentHealth?.user?.role === "admin"
+        ? api.adminUsage()
+        : api.usage(),
+      online ? api.account() : Promise.resolve(null),
+      online ? api.activeJobs() : Promise.resolve(null),
+    ]).catch((error) => {
+      if (epoch !== accountEpoch.current) return null;
+      throw error;
+    });
+    if (!loaded || !alive.current || epoch !== accountEpoch.current) return;
+    const [
+      sessionData,
+      modelData,
+      memoryData,
+      usageData,
+      accountData,
+      jobsData,
+    ] = loaded;
     setSessions(sessionData.sessions);
     setModels(modelData.models);
     setMemories(memoryData.memories);
     setDashboard(usageData);
-    setModelId((current) =>
-      modelData.models.some((model) => model.id === current && model.enabled)
-        ? current
-        : modelData.models.find((model) => model.enabled)?.id || "",
+    setAccountUsage(accountData);
+    const pending = jobsData?.jobs.find(
+      (job) => job.status === "queued" || job.status === "running",
     );
+    if (pending) {
+      setActiveJob(pending);
+      setRunning(true);
+    }
+    setModelId((current) =>
+      modelData.models.some(
+        (model) =>
+          model.id === current && model.enabled && (!online || model.hosted),
+      )
+        ? current
+        : modelData.models.find(
+            (model) => model.enabled && (!online || model.hosted),
+          )?.id || "",
+    );
+    if (
+      online &&
+      !initialQuestion &&
+      !selectedId.current &&
+      sessionData.sessions.length
+    ) {
+      let remembered: string | null = null;
+      try {
+        remembered = sessionStorage.getItem(
+          `guanxing-session-${currentHealth?.user?.id}`,
+        );
+      } catch {
+        /* Private browser storage may be unavailable. */
+      }
+      const id =
+        pending?.sessionId ||
+        sessionData.sessions.find((item) => item.id === remembered)?.id ||
+        sessionData.sessions[0].id;
+      selectedId.current = id;
+      setSessionId(id);
+    }
   }
   async function checkHealth() {
+    const epoch = accountEpoch.current;
     setGate("loading");
     setError("");
     const controller = new AbortController();
@@ -365,23 +761,32 @@ export default function Workspace({
       const health = await api.health(controller.signal);
       if (!health.ok || typeof health.needsSetup !== "boolean")
         throw new Error("服务状态不完整。");
-      if (!alive.current) return;
-      setGate(
-        health.needsSetup ? "setup" : health.authenticated ? "ready" : "login",
-      );
-      if (health.authenticated && !health.needsSetup) {
+      if (!alive.current || epoch !== accountEpoch.current) return;
+      setHealth(health);
+      if (
+        health.mode === "public" &&
+        initialTab === "admin" &&
+        health.user?.role !== "admin"
+      )
+        setTab("account");
+      if (health.needsSetup) setGate("setup");
+      else if (health.authenticated) {
         try {
-          await loadAll();
+          await loadAll(health);
+          if (alive.current && epoch === accountEpoch.current) setGate("ready");
         } catch (error) {
-          report(error);
+          if (epoch === accountEpoch.current) {
+            setGate("login");
+            report(error);
+          }
         }
-      }
+      } else setGate("login");
     } catch (error) {
-      if (alive.current) {
+      if (alive.current && epoch === accountEpoch.current) {
         setGate("unavailable");
         setError(
           controller.signal.aborted
-            ? "本地服务响应超时。请确认服务与数据库已经启动，再重新连接。"
+            ? "服务响应超时，请稍后重新连接。"
             : messageFor(error),
         );
       }
@@ -401,14 +806,27 @@ export default function Workspace({
     setApiKey("");
   }, [modelId, currentModel?.baseUrl]);
   useEffect(() => {
+    if (gate !== "ready") return;
+    if (!visibleTabs.some((item) => item.id === tab))
+      setTab(publicMode && initialTab === "admin" ? "account" : "chat");
+  }, [gate, publicMode, isAdmin, tab, initialTab]);
+  useEffect(() => {
     if (!sessionId || gate !== "ready") return;
     const controller = new AbortController();
     setDetailLoading(true);
     api
       .session(sessionId, controller.signal)
       .then((data) => {
-        if (!controller.signal.aborted && selectedId.current === sessionId)
+        if (!controller.signal.aborted && selectedId.current === sessionId) {
           setDetail(data);
+          const pending = data.jobs?.find(
+            (job) => job.status === "queued" || job.status === "running",
+          );
+          if (pending) {
+            setActiveJob(pending);
+            setRunning(true);
+          }
+        }
       })
       .catch((error) => {
         if (!controller.signal.aborted) report(error);
@@ -422,27 +840,179 @@ export default function Workspace({
     messageEnd.current?.scrollIntoView({ behavior: "auto", block: "nearest" });
   }, [detail?.messages.length, running, lastRun]);
 
-  async function authenticate(event: FormEvent) {
-    event.preventDefault();
-    setError("");
-    if (
-      gate === "setup" &&
-      (password.length < 12 || password !== confirmation)
-    ) {
-      setError(
-        password.length < 12
-          ? "首次密码至少需要 12 个字符。"
-          : "两次输入的密码不一致。",
-      );
+  useEffect(() => {
+    if (publicMode && !editingModelId && !modelDraft.name)
+      setModelDraft((current) => ({
+        ...current,
+        currency: "CNY",
+        dailyTokenLimit: 200000,
+      }));
+  }, [publicMode]);
+  useEffect(() => {
+    if (gate !== "ready" || !publicMode || !isAdmin || tab !== "site") return;
+    let current = true;
+    Promise.all([api.siteSettings(), api.users()])
+      .then(([settings, people]) => {
+        if (current) {
+          setSiteSettings(settings.settings);
+          setUsers(people.users);
+        }
+      })
+      .catch((error) => {
+        if (current) report(error);
+      });
+    return () => {
+      current = false;
+    };
+  }, [gate, publicMode, isAdmin, tab]);
+  useEffect(() => {
+    if (gate !== "ready" || !publicMode || !activeJob) return;
+    let cancelled = false,
+      failures = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let controller: AbortController | undefined;
+    const jobId = activeJob.id;
+    async function poll() {
+      controller = new AbortController();
+      const timeout = setTimeout(() => controller?.abort(), 12000);
+      try {
+        const { job } = await api.job(jobId, controller.signal);
+        if (cancelled) return;
+        failures = 0;
+        setPollPaused(false);
+        setActiveJob(job);
+        if (job.status === "queued" || job.status === "running") {
+          setRunning(true);
+          timer = setTimeout(() => void poll(), 2000);
+          return;
+        }
+        setRunning(false);
+        if (selectedId.current === job.sessionId) {
+          const latest = await api.session(job.sessionId);
+          if (!cancelled && selectedId.current === job.sessionId) {
+            setDetail(latest);
+            setLastRun(job.result || null);
+          }
+        }
+        if (cancelled) return;
+        if (job.status === "failed")
+          setError(job.error || "这次解读未完成，你可以重新发送问题。");
+        else
+          setNotice(
+            job.status === "cancelled"
+              ? "任务已停止。已经发生的模型用量仍会记录。"
+              : "解读已完成，并保存在你的对话中。",
+          );
+        await loadAll();
+        if (!cancelled) {
+          setActiveJob((current) => (current?.id === jobId ? null : current));
+          if (activeJobRef.current?.id === jobId) activeJobRef.current = null;
+        }
+      } catch (error) {
+        if (cancelled) return;
+        if (
+          error instanceof WorkspaceError &&
+          (error.status === 401 || error.status === 404)
+        ) {
+          setRunning(false);
+          setActiveJob(null);
+          report(error);
+          return;
+        }
+        failures++;
+        if (failures >= 5) {
+          setPollPaused(true);
+          setNotice(
+            "暂时无法取得任务进度，服务器仍会继续处理。点击刷新可重新连接。",
+          );
+        } else
+          timer = setTimeout(
+            () => void poll(),
+            Math.min(failures * 2000, 10000),
+          );
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    void poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller?.abort();
+    };
+  }, [activeJob?.id, pollVersion, gate, publicMode]);
+  async function stopRun() {
+    if (!publicMode) {
+      runController.current?.abort();
+      return;
+    }
+    if (!activeJob) {
+      setNotice("提交状态尚未确认，请刷新后查看并停止任务。");
       return;
     }
     setBusy(true);
     try {
-      await (gate === "setup" ? api.setup(password) : api.login(password));
+      await api.cancelJob(activeJob.id);
+      setNotice("已请求停止任务，正在确认处理状态。");
+      setPollVersion((value) => value + 1);
+    } catch (error) {
+      report(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function saveSite(event: FormEvent) {
+    event.preventDefault();
+    if (!siteSettings) return;
+    setBusy(true);
+    try {
+      const { settings } = await api.saveSettings(siteSettings);
+      setSiteSettings(settings);
+      setHealth((current) => (current ? { ...current, ...settings } : current));
+      await loadAll();
+      setNotice("站点设置已保存。");
+    } catch (error) {
+      report(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function authenticate(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    const creating = gate === "setup" || gate === "register";
+    if (creating && (password.length < 12 || password !== confirmation)) {
+      setError(
+        password.length < 12
+          ? "密码至少需要 12 个字符。"
+          : "两次输入的密码不一致。",
+      );
+      return;
+    }
+    if (gate === "register" && !consent) {
+      setError("请先阅读并确认资料保存说明。");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (gate === "setup")
+        await api.setup(
+          password,
+          publicMode
+            ? { username: username.trim(), setupToken: setupToken.trim() }
+            : undefined,
+        );
+      else if (gate === "register")
+        await api.register(username.trim(), password);
+      else await api.login(password, publicMode ? username.trim() : undefined);
+      accountEpoch.current++;
       setPassword("");
       setConfirmation("");
-      setGate("ready");
-      await loadAll();
+      setSetupToken("");
+      selectedId.current = null;
+      setSessionId(null);
+      await checkHealth();
     } catch (error) {
       report(error);
     } finally {
@@ -458,7 +1028,9 @@ export default function Workspace({
         const data = await api.session(sessionId);
         if (selectedId.current === sessionId) setDetail(data);
       }
-      setNotice("已刷新本地数据。");
+      setPollPaused(false);
+      setPollVersion((value) => value + 1);
+      setNotice("已刷新数据。");
     } catch (error) {
       report(error);
     } finally {
@@ -468,6 +1040,13 @@ export default function Workspace({
   function chooseSession(id: string) {
     selectedId.current = id;
     setSessionId(id);
+    if (publicMode) {
+      try {
+        sessionStorage.setItem(`guanxing-session-${health?.user?.id}`, id);
+      } catch {
+        /* Session selection is optional. */
+      }
+    }
     setDetail(null);
     setLastRun(null);
     setTab("chat");
@@ -522,9 +1101,16 @@ export default function Workspace({
   }
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (!prompt.trim() || !currentModel?.enabled || !apiKey.trim() || running)
+    if (
+      !prompt.trim() ||
+      !currentModel?.enabled ||
+      (!publicMode && !apiKey.trim()) ||
+      (publicMode && !publicModelReady) ||
+      running
+    )
       return;
     const content = prompt.trim();
+    const submissionEpoch = accountEpoch.current;
     const requestKey = apiKey;
     const requestModel = modelId;
     const controller = new AbortController();
@@ -541,6 +1127,61 @@ export default function Workspace({
       }
       if (controller.signal.aborted)
         throw new DOMException("已停止", "AbortError");
+      if (publicMode) {
+        const previous = pendingSubmission.current;
+        const submission =
+          previous &&
+          previous.sessionId === activeId &&
+          previous.modelId === requestModel &&
+          previous.content === content
+            ? previous
+            : {
+                sessionId: activeId,
+                modelId: requestModel,
+                content,
+                idempotencyKey: crypto.randomUUID(),
+              };
+        pendingSubmission.current = submission;
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        let job: AgentJob;
+        try {
+          ({ job } = await api.enqueue(
+            activeId,
+            {
+              content,
+              modelId: requestModel,
+              idempotencyKey: submission.idempotencyKey,
+            },
+            controller.signal,
+          ));
+        } finally {
+          clearTimeout(timeout);
+        }
+        if (!alive.current) return;
+        setActiveJob(job);
+        activeJobRef.current = job;
+        setPollPaused(false);
+        setPollVersion((value) => value + 1);
+        setPrompt("");
+        pendingSubmission.current = null;
+        void api
+          .account()
+          .then((data) => {
+            if (alive.current && submissionEpoch === accountEpoch.current)
+              setAccountUsage(data);
+          })
+          .catch(() => {
+            /* Completion refresh will retry this counter. */
+          });
+        const submittedSession = await api.session(activeId);
+        if (selectedId.current === activeId) setDetail(submittedSession);
+        if (
+          activeJobRef.current?.id === job.id &&
+          ["queued", "running"].includes(activeJobRef.current.status)
+        )
+          setNotice("请求已提交。离开或关闭页面后仍会继续，可以稍后回来查看。");
+        return;
+      }
       const response = await api.run(
         activeId,
         { content, modelId: requestModel, apiKey: requestKey },
@@ -555,7 +1196,9 @@ export default function Workspace({
       if (!alive.current) return;
       if (controller.signal.aborted)
         setNotice(
-          "已停止等待并通知服务端取消运行。正在执行的调用可能已经产生用量，请查看账本。",
+          publicMode
+            ? "提交状态暂未确认。请刷新查看任务；重试同一条消息会使用原请求编号。"
+            : "已停止等待并通知服务端取消运行。正在执行的调用可能已经产生用量，请查看账本。",
         );
       else report(error);
       if (activeId) {
@@ -568,7 +1211,13 @@ export default function Workspace({
         }
       }
     } finally {
-      if (alive.current) setRunning(false);
+      if (
+        alive.current &&
+        (!publicMode ||
+          !activeJobRef.current ||
+          !["queued", "running"].includes(activeJobRef.current.status))
+      )
+        setRunning(false);
       if (runController.current === controller) runController.current = null;
     }
   }
@@ -651,10 +1300,19 @@ export default function Workspace({
       if (editingModelId) await api.updateModel(editingModelId, draft);
       else await api.createModel(draft);
       setEditingModelId(null);
-      setModelDraft({ ...blankModel });
+      setModelDraft({
+        ...blankModel,
+        ...(publicMode
+          ? { currency: "CNY" as const, dailyTokenLimit: 200000 }
+          : {}),
+      });
       setApiKey("");
       await loadAll();
-      setNotice("模型配置已保存。Key 不在配置中。");
+      setNotice(
+        publicMode
+          ? "模型配置已保存。请在模型卡片中配置服务密钥。"
+          : "模型配置已保存。Key 不在配置中。",
+      );
     } catch (error) {
       report(error);
     } finally {
@@ -669,7 +1327,12 @@ export default function Workspace({
       setDeleteTarget(null);
       if (editingModelId === model.id) {
         setEditingModelId(null);
-        setModelDraft({ ...blankModel });
+        setModelDraft({
+          ...blankModel,
+          ...(publicMode
+            ? { currency: "CNY" as const, dailyTokenLimit: 200000 }
+            : {}),
+        });
       }
       await loadAll();
       setNotice("模型移除请求已完成；有历史记录的配置会保留为停用状态。");
@@ -693,7 +1356,7 @@ export default function Workspace({
       link.download = `guanxing-workspace-${new Date().toISOString().slice(0, 10)}.json`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setNotice("已导出本地数据。文件包含会话与记忆，请妥善保存。");
+      setNotice("已导出你的数据。文件包含会话与记忆，请妥善保存。");
     } catch (error) {
       report(error);
     } finally {
@@ -701,6 +1364,7 @@ export default function Workspace({
     }
   }
   async function logout() {
+    accountEpoch.current++;
     runController.current?.abort();
     setBusy(true);
     setError("");
@@ -708,6 +1372,10 @@ export default function Workspace({
       await api.logout();
       setApiKey("");
       setPassword("");
+      setPrompt("");
+      setTitle("");
+      setNewMemory("");
+      pendingSubmission.current = null;
       setDetail(null);
       setSessionId(null);
       selectedId.current = null;
@@ -716,6 +1384,14 @@ export default function Workspace({
       setMemories([]);
       setDashboard(null);
       setLastRun(null);
+      setActiveJob(null);
+      setRunning(false);
+      setUsers([]);
+      setSiteSettings(null);
+      setAccountUsage(null);
+      setHealth((current) =>
+        current ? { ...current, authenticated: false, user: null } : current,
+      );
       setGate("login");
       setNotice("");
     } catch (error) {
@@ -742,7 +1418,7 @@ export default function Workspace({
         </div>
         <span className="ws-local">
           <i />
-          本地工作台
+          {publicMode ? health?.user?.username || "在线观星室" : "本地工作台"}
         </span>
         {gate === "ready" && (
           <button
@@ -762,35 +1438,39 @@ export default function Workspace({
           {gate === "loading" ? (
             <>
               <LoaderCircle className="ws-spin" size={26} />
-              <h1>连接本地工作台</h1>
+              <h1>连接你的观星室</h1>
               <p>正在确认服务与登录状态。</p>
             </>
           ) : gate === "unavailable" ? (
             <>
               <h1>
-                把这间观星室，
+                暂时还没连上，
                 <br />
-                留在你自己的电脑里。
+                你的观星室。
               </h1>
               <p>
-                公开站点提供星图体验。连续对话、记忆、模型管理与真实用量需要本地服务和
-                PostgreSQL + pgvector。
+                {publicMode
+                  ? "站点服务暂时不可用，请稍后重新连接。已经提交的后台任务不会因为关闭页面而取消。"
+                  : "已部署的站点可以稍后重试。GitHub Pages 提供星图体验；连续对话和独立记忆需要完整服务器版本，也可以在自己的电脑上运行。"}
               </p>
-              <div className="ws-startup">
-                <span>下载或克隆仓库，在项目目录运行</span>
-                <code>./scripts/start-local.sh</code>
-                <span>
-                  脚本会创建本地配置并通过 Docker 启动服务。需要先安装并运行
-                  Docker。
-                </span>
-                <a href="http://localhost:3000" className="ws-action gold">
-                  打开 localhost:3000 ↗
-                </a>
-              </div>
-              <p className="ws-muted">
-                首次打开后创建至少 12
-                位的管理员密码。页面不会模拟已保存的记忆或后台数据。
-              </p>
+              {!publicMode && (
+                <div className="ws-startup">
+                  <span>下载或克隆仓库，在项目目录运行</span>
+                  <code>./scripts/start-local.sh</code>
+                  <span>
+                    脚本会创建本地配置并通过 Docker 启动服务。需要先安装并运行
+                    Docker。
+                  </span>
+                  <a href="http://localhost:3000" className="ws-action gold">
+                    打开 localhost:3000 ↗
+                  </a>
+                </div>
+              )}
+              {!publicMode && (
+                <p className="ws-muted">
+                  本地首次运行需要设置管理员密码。服务器部署方式见项目文档。
+                </p>
+              )}
               {error && (
                 <p className="ws-error" role="alert">
                   {error}
@@ -804,31 +1484,75 @@ export default function Workspace({
           ) : (
             <>
               <h1>
-                {gate === "setup" ? "开启你的观星室。" : "回到你的观星室。"}
+                {gate === "setup"
+                  ? "开启这间观星室。"
+                  : gate === "register"
+                    ? "留一个自己的位置。"
+                    : "回到你的观星室。"}
               </h1>
               <p>
-                {gate === "setup"
-                  ? "创建本地管理员密码。你的会话与确认的记忆将保存在自己的 PostgreSQL 数据库中。"
-                  : "使用本地管理员密码登录，继续上一次对话。"}
+                {publicMode
+                  ? gate === "setup"
+                    ? "使用部署时生成的初始化口令，创建站点管理员。"
+                    : gate === "register"
+                      ? "创建独立账号。你的对话和确认的记忆只属于你。"
+                      : "登录后，继续你的对话与记忆。"
+                  : gate === "setup"
+                    ? "创建本地管理员密码。你的会话与确认的记忆将保存在自己的 PostgreSQL 数据库中。"
+                    : "使用本地管理员密码登录，继续上一次对话。"}
               </p>
               <form className="ws-auth" onSubmit={authenticate}>
+                {publicMode && (
+                  <label>
+                    用户名
+                    <input
+                      autoComplete="username"
+                      required
+                      minLength={3}
+                      maxLength={32}
+                      pattern="[A-Za-z0-9][A-Za-z0-9_\-]{2,31}"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      placeholder="3–32 位字母、数字、下划线或短横线"
+                    />
+                  </label>
+                )}
+                {publicMode && gate === "setup" && (
+                  <label>
+                    初始化口令
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      required
+                      value={setupToken}
+                      onChange={(event) => setSetupToken(event.target.value)}
+                      placeholder="来自服务器部署配置的 SETUP_TOKEN"
+                    />
+                  </label>
+                )}
                 <label>
-                  管理员密码
+                  {publicMode ? "密码" : "管理员密码"}
                   <input
                     type="password"
                     autoComplete={
-                      gate === "setup" ? "new-password" : "current-password"
+                      gate === "setup" || gate === "register"
+                        ? "new-password"
+                        : "current-password"
                     }
                     required
-                    minLength={gate === "setup" ? 12 : undefined}
+                    minLength={
+                      gate === "setup" || gate === "register" ? 12 : undefined
+                    }
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     placeholder={
-                      gate === "setup" ? "至少 12 个字符" : "输入你的密码"
+                      gate === "setup" || gate === "register"
+                        ? "至少 12 个字符"
+                        : "输入你的密码"
                     }
                   />
                 </label>
-                {gate === "setup" && (
+                {(gate === "setup" || gate === "register") && (
                   <label>
                     再次输入密码
                     <input
@@ -839,6 +1563,20 @@ export default function Workspace({
                       value={confirmation}
                       onChange={(event) => setConfirmation(event.target.value)}
                     />
+                  </label>
+                )}
+                {gate === "register" && (
+                  <label className="ws-checkbox ws-consent">
+                    <input
+                      type="checkbox"
+                      checked={consent}
+                      onChange={(event) => setConsent(event.target.checked)}
+                      required
+                    />
+                    <span>
+                      我了解对话、附带的出生资料和确认的记忆会保存在本站；可在账号中导出，在对话与记忆中删除。解读内容由
+                      AI 生成。
+                    </span>
                   </label>
                 )}
                 {error && (
@@ -852,16 +1590,58 @@ export default function Workspace({
                   ) : (
                     <KeyRound size={17} />
                   )}
-                  {gate === "setup" ? "创建并进入" : "进入工作台"}
+                  {gate === "setup"
+                    ? "创建管理员并进入"
+                    : gate === "register"
+                      ? "注册并进入"
+                      : "进入观星室"}
                 </button>
               </form>
+              {publicMode && gate !== "setup" && (
+                <div className="ws-auth-switch">
+                  {gate === "register" ? (
+                    <button
+                      className="ws-action gold"
+                      disabled={busy}
+                      onClick={() => {
+                        setGate("login");
+                        setPassword("");
+                        setConfirmation("");
+                        setError("");
+                      }}
+                    >
+                      已有账号，前往登录 ↗
+                    </button>
+                  ) : health?.registrationOpen ? (
+                    <button
+                      className="ws-action gold"
+                      disabled={busy}
+                      onClick={() => {
+                        setGate("register");
+                        setPassword("");
+                        setConfirmation("");
+                        setError("");
+                      }}
+                    >
+                      第一次来，创建账号 ↗
+                    </button>
+                  ) : (
+                    <p className="ws-muted">
+                      本站暂未开放注册，请联系站点管理员。
+                    </p>
+                  )}
+                  {gate === "login" && (
+                    <p className="ws-muted">忘记密码可联系站点管理员重置。</p>
+                  )}
+                </div>
+              )}
             </>
           )}
         </main>
       ) : (
         <>
           <nav className="ws-tabs" aria-label="工作台功能">
-            {tabs.map((item) => (
+            {visibleTabs.map((item) => (
               <button
                 key={item.id}
                 className={tab === item.id ? "active" : ""}
@@ -939,7 +1719,7 @@ export default function Workspace({
                   )}
                   <button
                     className="ws-button"
-                    disabled={busy || running}
+                    disabled={busy || (!publicMode && running)}
                     onClick={() => void newSession()}
                   >
                     <Plus size={16} />
@@ -955,7 +1735,7 @@ export default function Workspace({
                       >
                         <button
                           className="ws-session-select"
-                          disabled={running}
+                          disabled={!publicMode && running}
                           onClick={() => chooseSession(session.id)}
                         >
                           <strong>{session.title || "未命名对话"}</strong>
@@ -989,14 +1769,20 @@ export default function Workspace({
                     <h1>{detail?.session.title || "从一个问题开始。"}</h1>
                     <p>
                       {detail?.session.birth
-                        ? `已附命盘 · ${detail.session.birth.date} · 出生信息保存在本地数据库`
+                        ? `已附命盘 · ${detail.session.birth.date} · ${publicMode ? "仅在你的账号中使用" : "出生信息保存在本地数据库"}`
                         : "连续对话 · 由你确认记忆 · 工具操作可追溯"}
                     </p>
                   </div>
                   {running && (
                     <span className="ws-running">
                       <LoaderCircle size={14} className="ws-spin" />
-                      正在思考
+                      {publicMode
+                        ? pollPaused
+                          ? "等待重连"
+                          : activeJob?.status === "queued"
+                            ? "正在排队"
+                            : "正在解读"
+                        : "正在思考"}
                     </span>
                   )}
                 </div>
@@ -1048,7 +1834,15 @@ export default function Workspace({
                     <div className="ws-run-note">
                       <LoaderCircle size={16} className="ws-spin" />
                       <span>
-                        正在执行本次请求。完成后显示实际工具记录与用量；你可以随时停止。
+                        {publicMode
+                          ? displayJob?.cancelRequested
+                            ? "已请求停止，正在等待模型调用结束。"
+                            : activeJob && activeJob.sessionId !== sessionId
+                              ? "另一段对话正在后台处理中，完成后会保存结果。"
+                              : displayJob?.status === "queued"
+                                ? "请求已排队。轮到后会自动开始，关闭页面也不会丢失任务。"
+                                : "正在生成解读。你可以离开页面，回来后继续查看。"
+                          : "正在执行本次请求。完成后显示实际工具记录与用量；你可以随时停止。"}
                       </span>
                     </div>
                   )}
@@ -1144,7 +1938,10 @@ export default function Workspace({
                       >
                         <option value="">选择已启用模型</option>
                         {models
-                          .filter((model) => model.enabled)
+                          .filter(
+                            (model) =>
+                              model.enabled && (!publicMode || model.hosted),
+                          )
                           .map((model) => (
                             <option value={model.id} key={model.id}>
                               {model.name}
@@ -1152,29 +1949,52 @@ export default function Workspace({
                           ))}
                       </select>
                     </label>
-                    <label>
-                      临时 API Key
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={apiKey}
-                        disabled={running}
-                        onChange={(event) => setApiKey(event.target.value)}
-                        placeholder="只保留在当前页面内存"
-                        maxLength={512}
-                      />
-                    </label>
+                    {!publicMode && (
+                      <label>
+                        临时 API Key
+                        <input
+                          type="password"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={apiKey}
+                          disabled={running}
+                          onChange={(event) => setApiKey(event.target.value)}
+                          placeholder="只保留在当前页面内存"
+                          maxLength={512}
+                        />
+                      </label>
+                    )}
+                    {publicMode && (
+                      <div className="ws-allowance">
+                        <span>今日解读</span>
+                        <strong>
+                          {accountUsage
+                            ? `${Math.max(0, accountUsage.dailyRunLimit - accountUsage.usedToday)} / ${accountUsage.dailyRunLimit} 次可用`
+                            : "由站点提供模型服务"}
+                        </strong>
+                        <small>提交计入额度，记忆由你确认</small>
+                      </div>
+                    )}
                   </div>
-                  {!models.some((model) => model.enabled) && (
-                    <button
-                      type="button"
-                      className="ws-action gold"
-                      onClick={() => setTab("models")}
-                    >
-                      先配置一个模型服务 ↗
-                    </button>
-                  )}
+                  {!models.some(
+                    (model) => model.enabled && (!publicMode || model.hosted),
+                  ) &&
+                    canManageModels && (
+                      <button
+                        type="button"
+                        className="ws-action gold"
+                        onClick={() => setTab("models")}
+                      >
+                        先配置一个模型服务 ↗
+                      </button>
+                    )}
+                  {publicMode &&
+                    !canManageModels &&
+                    !models.some((model) => model.enabled && model.hosted) && (
+                      <p className="ws-muted">
+                        站点暂未开通解读服务，请稍后再来。
+                      </p>
+                    )}
                   <label className="ws-prompt-label">
                     <span className="ws-sr-only">对话内容</span>
                     <textarea
@@ -1197,14 +2017,16 @@ export default function Workspace({
                   </label>
                   <div className="ws-composer-bottom">
                     <p>
-                      Key
-                      经本机后端转发到所选服务，不保存。会话与确认的记忆保存在本地。
+                      {publicMode
+                        ? "AI 生成内容供参考。任务在后台继续，结果保存在你的账号。"
+                        : "Key 经本机后端转发到所选服务，不保存。会话与确认的记忆保存在本地。"}
                     </p>
                     {running ? (
                       <button
                         type="button"
                         className="ws-button"
-                        onClick={() => runController.current?.abort()}
+                        disabled={busy || Boolean(activeJob?.cancelRequested)}
+                        onClick={() => void stopRun()}
                       >
                         <Square size={14} />
                         停止
@@ -1215,7 +2037,8 @@ export default function Workspace({
                         disabled={
                           busy ||
                           !prompt.trim() ||
-                          !apiKey.trim() ||
+                          (!publicMode && !apiKey.trim()) ||
+                          (publicMode && !publicModelReady) ||
                           !currentModel?.enabled
                         }
                       >
@@ -1339,15 +2162,16 @@ export default function Workspace({
               </div>
             </main>
           )}
-          {tab === "models" && (
+          {tab === "models" && canManageModels && (
             <main className="ws-panel">
               <div className="ws-section-heading">
                 <div>
                   <p className="ws-eyebrow">MODELS / 选择自己的模型</p>
                   <h1>服务、价格、限额。</h1>
                   <p>
-                    保存可复用的模型配置。API Key
-                    在每次对话时临时输入，不写入配置或数据库。
+                    {publicMode
+                      ? "配置本站使用的模型。服务密钥加密保存，每日额度控制全站调用；普通用户无需填写 Key。"
+                      : "保存可复用的模型配置。API Key 在每次对话时临时输入，不写入配置或数据库。"}
                   </p>
                 </div>
               </div>
@@ -1365,6 +2189,16 @@ export default function Workspace({
                       </div>
                       <p>{model.model}</p>
                       <p className="ws-endpoint">{model.baseUrl}</p>
+                      {publicMode && (
+                        <ServerKeyForm
+                          model={model}
+                          onChange={async () => {
+                            await loadAll();
+                            setNotice("服务密钥设置已更新。");
+                          }}
+                          onError={report}
+                        />
+                      )}
                       <dl>
                         <div>
                           <dt>输入 / 输出（每百万 tokens）</dt>
@@ -1393,7 +2227,7 @@ export default function Workspace({
                           className="ws-action"
                           disabled={busy}
                           onClick={() => {
-                            const { id, ...draft } = model;
+                            const { id, hosted: _hosted, ...draft } = model;
                             setEditingModelId(id);
                             setModelDraft(draft);
                           }}
@@ -1550,8 +2384,9 @@ export default function Workspace({
                     </label>
                   </div>
                   <p className="ws-muted">
-                    限额 0 表示不限；价格 0
-                    表示未计价，不代表免费。估算费用用于个人控制，不是服务商账单。
+                    {publicMode
+                      ? "共享服务必须设置大于 0 的每日 token 上限。价格请按服务商填入；费用为估算，未区分缓存优惠，不等于实际账单。"
+                      : "限额 0 表示不限；价格 0 表示未计价，不代表免费。估算费用用于个人控制，不是服务商账单。"}
                   </p>
                   <label className="ws-checkbox">
                     <input
@@ -1585,7 +2420,15 @@ export default function Workspace({
                         disabled={busy}
                         onClick={() => {
                           setEditingModelId(null);
-                          setModelDraft({ ...blankModel });
+                          setModelDraft({
+                            ...blankModel,
+                            ...(publicMode
+                              ? {
+                                  currency: "CNY" as const,
+                                  dailyTokenLimit: 200000,
+                                }
+                              : {}),
+                          });
                         }}
                       >
                         取消编辑
@@ -1596,12 +2439,156 @@ export default function Workspace({
               </div>
             </main>
           )}
+          {tab === "account" && publicMode && (
+            <main className="ws-panel">
+              <div className="ws-section-heading">
+                <div>
+                  <p className="ws-eyebrow">ACCOUNT / 你的私人空间</p>
+                  <h1>{health?.user?.username}，欢迎回来。</h1>
+                  <p>
+                    对话、命盘和记忆按账号独立保存。你可以导出自己的数据，随时删除不想留下的对话和记忆。
+                  </p>
+                </div>
+                <UserRound className="ws-section-symbol" size={38} />
+              </div>
+              <div className="ws-account-layout">
+                <section className="ws-account-summary">
+                  <h2>我的使用情况</h2>
+                  <dl>
+                    <div>
+                      <dt>今日已提交</dt>
+                      <dd>{accountUsage?.usedToday ?? "—"} 次</dd>
+                    </div>
+                    <div>
+                      <dt>每日上限</dt>
+                      <dd>{accountUsage?.dailyRunLimit ?? "—"} 次</dd>
+                    </div>
+                    <div>
+                      <dt>账号身份</dt>
+                      <dd>{isAdmin ? "站点管理员" : "普通用户"}</dd>
+                    </div>
+                  </dl>
+                  <p className="ws-muted">
+                    每天按站点时区重置额度。失败或停止的提交也会记录，避免反复请求造成额外消耗。
+                  </p>
+                  <button
+                    className="ws-button"
+                    disabled={busy}
+                    onClick={() => void exportData()}
+                  >
+                    <Download size={15} />
+                    导出我的对话与记忆
+                  </button>
+                  <p className="ws-muted">
+                    模型提出的记忆需要你确认后才生效。请避免保存不必要的敏感资料。
+                  </p>
+                </section>
+                <PasswordForm
+                  onError={report}
+                  onSaved={() => {
+                    setNotice("密码已更新，其他登录已退出。");
+                    void checkHealth();
+                  }}
+                />
+              </div>
+            </main>
+          )}
+          {tab === "site" && publicMode && isAdmin && (
+            <main className="ws-panel">
+              <div className="ws-section-heading">
+                <div>
+                  <p className="ws-eyebrow">SITE / 管理这间观星室</p>
+                  <h1>开放有度，使用有数。</h1>
+                  <p>
+                    决定是否接受新用户，为每个账号设置每日解读额度。模型与全站费用上限在“模型”中管理。
+                  </p>
+                </div>
+                <ShieldCheck className="ws-section-symbol" size={38} />
+              </div>
+              <div className="ws-site-layout">
+                <form className="ws-site-form" onSubmit={saveSite}>
+                  <h2>访问与额度</h2>
+                  {siteSettings ? (
+                    <>
+                      <label className="ws-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={siteSettings.registrationOpen}
+                          onChange={(event) =>
+                            setSiteSettings({
+                              ...siteSettings,
+                              registrationOpen: event.target.checked,
+                            })
+                          }
+                        />
+                        开放新用户注册
+                      </label>
+                      <p className="ws-muted">
+                        关闭注册后，已有用户仍可登录。需要暂停某个账号时，可在右侧停用。
+                      </p>
+                      <label>
+                        每位用户每日最多提交次数
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          step={1}
+                          required
+                          value={siteSettings.dailyRunLimit}
+                          onChange={(event) =>
+                            setSiteSettings({
+                              ...siteSettings,
+                              dailyRunLimit: Number(event.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                      <p className="ws-muted">
+                        额度包含已提交任务。建议小范围试用时从每天 10 次开始。
+                      </p>
+                      <button className="ws-button primary" disabled={busy}>
+                        <Check size={15} />
+                        保存站点设置
+                      </button>
+                    </>
+                  ) : (
+                    <p className="ws-muted">正在读取站点设置…</p>
+                  )}
+                </form>
+                <section className="ws-user-list">
+                  <div className="ws-ledger-heading">
+                    <h2>
+                      用户 <span>{users.length}</span>
+                    </h2>
+                    <p>停用和重置密码会退出该用户的旧登录。</p>
+                  </div>
+                  {users.map((user) => (
+                    <AccountRow
+                      key={user.id}
+                      user={user}
+                      selfId={health?.user?.id}
+                      onError={report}
+                      onChange={async () => {
+                        const response = await api.users();
+                        setUsers(response.users);
+                        setNotice("用户设置已更新。");
+                      }}
+                    />
+                  ))}
+                </section>
+              </div>
+            </main>
+          )}
           {tab === "usage" && (
             <main className="ws-panel ws-usage-panel">
               <div className="ws-section-heading">
                 <div>
                   <p className="ws-eyebrow">USAGE / 每一次调用都有据可查</p>
-                  <h1>用量与本地数据。</h1>
+                  <h1>
+                    {publicMode && isAdmin
+                      ? "站点用量，一目了然。"
+                      : "用量与我的数据。"}
+                  </h1>
                   <p>
                     账本记录请求、估算与额度预留。工具循环中的各次调用分别计入，失败或中断记录也会保留。
                   </p>
@@ -1612,7 +2599,7 @@ export default function Workspace({
                   onClick={() => void exportData()}
                 >
                   <Download size={15} />
-                  导出全部数据
+                  导出我的数据
                 </button>
               </div>
               {dashboard ? (
@@ -1629,7 +2616,7 @@ export default function Workspace({
                       </small>
                     </div>
                     <div>
-                      <dt>本地记录</dt>
+                      <dt>{publicMode && isAdmin ? "站点记录" : "我的记录"}</dt>
                       <dd>
                         {number(dashboard.sessions)} <small>对话</small> ·{" "}
                         {number(dashboard.memories)} <small>记忆</small>

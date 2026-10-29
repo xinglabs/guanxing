@@ -1,0 +1,145 @@
+name: Publish server image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    outputs:
+      image-digest: ${{ steps.image.outputs.digest }}
+    permissions:
+      contents: read
+      packages: write
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: guanxing_ci
+          POSTGRES_USER: guanxing
+          POSTGRES_PASSWORD: ephemeral-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U guanxing -d guanxing_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgresql://guanxing:ephemeral-ci-only@127.0.0.1:5432/guanxing_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: node --test scripts/test-server-deployment.mjs
+      - name: Validate HTTPS proxy configuration
+        run: docker run --rm --network none -e DOMAIN=guanxing.example.com -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Container metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,format=long
+            type=semver,pattern={{version}}
+      - name: Build and publish Linux server image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Deployment note
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          printf 'Published digest: `%s`\n\n' "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          printf 'First publication: set the package visibility to Public and verify an anonymous pull before giving the image to users. Public repository visibility alone does not make a new GHCR package public.\n' >> "$GITHUB_STEP_SUMMARY"
+
+  release-bundle:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Smoke test the exact published image in an isolated CI directory
+        env:
+          IMAGE_DIGEST: ${{ needs.publish.outputs.image-digest }}
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          smoke_dir="$RUNNER_TEMP/guanxing-release-smoke"
+          mkdir "$smoke_dir"
+          git archive HEAD | tar -xf - -C "$smoke_dir"
+          cd "$smoke_dir"
+          compose=(docker compose --project-name guanxing-server --env-file .env.server -f compose.server.yaml)
+          cleanup() {
+            # This job owns this temporary CI project and its disposable test data.
+            if [[ -f .env.server ]]; then
+              "${compose[@]}" down --volumes --remove-orphans
+            fi
+          }
+          trap cleanup EXIT
+          image_repository="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/$image_repository@$IMAGE_DIGEST"
+          ./scripts/start-server.sh --image "$image"
+          "${compose[@]}" exec -T app node -e "fetch('http://127.0.0.1:3000/api/health').then(async r=>{const h=await r.json();if(!r.ok||!h.ok||h.mode!=='public'||h.needsSetup!==true)process.exit(1);console.log('Public bootstrap health OK')}).catch(()=>process.exit(1))"
+          app_id="$("${compose[@]}" ps -q app)"
+          db_id="$("${compose[@]}" ps -q db)"
+          test "$(docker inspect --format '{{.Image}}' "$app_id")" = "$(docker image inspect --format '{{.Id}}' "$image")"
+          test "$(docker inspect --format '{{(index (index .HostConfig.PortBindings "3000/tcp") 0).HostIp}}' "$app_id")" = 127.0.0.1
+          db_ports="$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$db_id")"
+          [[ "$db_ports" == '{}' || "$db_ports" == 'null' ]]
+      - name: Package exact app image, database, proxy and tracked source
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          IMAGE_DIGEST: ${{ needs.publish.outputs.image-digest }}
+        run: |
+          image_repository="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          ./scripts/package-server-release.sh "$RELEASE_TAG" "ghcr.io/$image_repository@$IMAGE_DIGEST" "$RUNNER_TEMP/release-assets"
+      - name: Upload deployment archive and checksum
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            printf 'Linux amd64 offline deployment bundle. Verify the SHA256 checksum, extract it and run scripts/install-offline.sh. See docs/server-deployment.md inside the package.\n' > "$RUNNER_TEMP/release-notes.md"
+            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --verify-tag --draft --title "Guanxing $RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+          asset="$RUNNER_TEMP/release-assets/guanxing-$RELEASE_TAG-linux-amd64.tar.gz"
+          gh release upload "$RELEASE_TAG" "$asset" "$asset.sha256" --repo "$GH_REPO" --clobber
+          printf 'Offline deployment bundle and SHA256 uploaded to release `%s`. A newly created release remains a draft until verified and published.\n' "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
