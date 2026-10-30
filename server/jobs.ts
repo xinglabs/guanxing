@@ -98,6 +98,7 @@ export class JobWorker {
           apiKey,
           signal: controller.signal,
           controlledThinking: true,
+          userTokenBudget: () => scoped.dailyUserBudget(),
         });
         const latest = await scoped.getJob(job.id);
         if (controller.signal.aborted || latest?.cancelRequested)

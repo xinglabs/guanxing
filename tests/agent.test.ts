@@ -285,6 +285,63 @@ test("missing usage and network interruption keep conservative visible reservati
   assert.ok(failed.usage[0].totalTokens > 1600);
   assert.ok(!JSON.stringify(failed).includes("fake-test-key"));
 });
+test("per-user tokens bound output and are rechecked before each tool step", async () => {
+  const baseline = new FakeStore();
+  await runAgent({
+    ...args(baseline),
+    fetcher: async () => answer("baseline", null),
+  });
+  const inputBound = baseline.usage[0].inputTokens;
+  const limited = new FakeStore();
+  let calls = 0;
+  await runAgent({
+    ...args(limited),
+    userTokenBudget: async () => ({ limit: inputBound + 256, used: 0 }),
+    fetcher: async (_url, init) => {
+      calls++;
+      assert.equal(JSON.parse(String(init?.body)).max_tokens, 256);
+      assert.equal(limited.usage[0].totalTokens, inputBound + 256);
+      return answer("limited", null);
+    },
+  });
+  assert.equal(calls, 1);
+  const tool = new FakeStore();
+  let budgetReads = 0,
+    modelCalls = 0;
+  await assert.rejects(
+    runAgent({
+      ...args(tool),
+      userTokenBudget: async () =>
+        ++budgetReads === 1
+          ? { limit: 100000, used: 0 }
+          : { limit: 1, used: 1 },
+      fetcher: async () => {
+        modelCalls++;
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { tool_calls: [call("get_chart")] } }],
+            usage: { prompt_tokens: 100, completion_tokens: 20 },
+          }),
+        );
+      },
+    }),
+    /今天的解读暂时/,
+  );
+  assert.equal(modelCalls, 1);
+  assert.equal(budgetReads, 2);
+  assert.equal(tool.usage.length, 1);
+  await assert.rejects(
+    runAgent({
+      ...args(new FakeStore()),
+      userTokenBudget: async () => ({ limit: 1, used: 0 }),
+      fetcher: async () => {
+        assert.fail("must not call the model");
+        return answer();
+      },
+    }),
+    /今天的解读暂时/,
+  );
+});
 test("five-step cap stops repeated tool requests and each step remains in ledger", async () => {
   const s = new FakeStore();
   let n = 0;

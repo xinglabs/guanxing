@@ -8,7 +8,7 @@ import { readFile, stat } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Store } from "./store";
-import type { Account } from "./public-types";
+import type { Account, AgentJob } from "./public-types";
 import type { ModelProfile } from "./types";
 import { runAgent } from "./agent";
 import { embeddingStatus } from "./embedding";
@@ -141,6 +141,33 @@ export function createPublicApiServer(options: PublicServerOptions) {
   const admin = (user: Account) => {
     if (user.role !== "admin") fail(403, "此操作仅限管理员。");
   };
+  const publicAccount = (user: Account) => ({
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    disabled: user.disabled,
+    createdAt: user.createdAt,
+  });
+  const visibleJob = (user: Account, job: AgentJob) =>
+    user.role === "admin"
+      ? job
+      : {
+          id: job.id,
+          sessionId: job.sessionId,
+          status: job.status,
+          cancelRequested: job.cancelRequested,
+          createdAt: job.createdAt,
+          ...(job.error
+            ? {
+                error:
+                  job.status === "cancelled"
+                    ? "已停止本次解读。"
+                    : job.error.startsWith("今天的解读暂时")
+                      ? job.error
+                      : "这次解读暂时没有完成，请稍后重试或联系管理员。",
+              }
+            : {}),
+        };
   async function mutate<T>(action: () => Promise<T>) {
     const release = await store.acquireRunLock();
     if (!release) fail(409, "有解读任务正在运行，请稍后再修改这项配置。");
@@ -155,27 +182,12 @@ export function createPublicApiServer(options: PublicServerOptions) {
     const models = await Promise.all(
       profiles.map(async (profile) => {
         const hosted = Boolean(await store.getModelSecret(profile.id));
-        return user.role === "admin"
-          ? { ...profile, hosted }
-          : {
-              id: profile.id,
-              name: profile.name,
-              model: profile.model,
-              enabled: profile.enabled,
-              hosted,
-              baseUrl: "",
-              inputPricePerMillion: 0,
-              outputPricePerMillion: 0,
-              currency: profile.currency,
-              dailyTokenLimit: 0,
-              dailyCostLimit: 0,
-            };
+        return { ...profile, hosted };
       }),
     );
-    return user.role === "admin"
-      ? models
-      : models.filter((m) => m.enabled && m.hosted);
+    return models;
   }
+
   async function validateModel(value: Record<string, unknown>) {
     const model = modelInput(value);
     if (model.dailyTokenLimit <= 0)
@@ -218,13 +230,12 @@ export function createPublicApiServer(options: PublicServerOptions) {
           const settings = await store.getSiteSettings();
           return reply(res, 200, {
             ok: true,
-            version: "3.1.2",
+            version: "3.2.0",
             mode: "public",
             needsSetup: !(await store.hasOwner()),
             authenticated: Boolean(user),
-            user: user ?? undefined,
+            user: user ? publicAccount(user) : undefined,
             registrationOpen: settings.registrationOpen,
-            dailyRunLimit: settings.dailyRunLimit,
             requiresSetupToken: true,
             hostedModels: (await store.listModels()).some((m) => m.enabled),
           });
@@ -288,7 +299,7 @@ export function createPublicApiServer(options: PublicServerOptions) {
           if (!account) fail(500, "账号初始化未完成。");
           await signIn(req, res, account.id, verifiedHash);
           limits.delete(`auth-user:${name}`);
-          return reply(res, 200, { ok: true, user: account });
+          return reply(res, 200, { ok: true, user: publicAccount(account) });
         }
         if (!user) fail(401, "请先登录你的观星账号。");
         const scoped = store.forUser(user.id);
@@ -327,11 +338,7 @@ export function createPublicApiServer(options: PublicServerOptions) {
           return reply(res, 200, { ok: true });
         }
         if (path === "/api/account" && method === "GET")
-          return reply(res, 200, {
-            user,
-            dailyRunLimit: (await store.getSiteSettings()).dailyRunLimit,
-            usedToday: (await scoped.dailyJobUsage()).used,
-          });
+          return reply(res, 200, { user: publicAccount(user) });
         if (path.startsWith("/api/admin/")) {
           admin(user);
           if (path === "/api/admin/settings" && method === "GET")
@@ -355,6 +362,26 @@ export function createPublicApiServer(options: PublicServerOptions) {
           }
           if (path === "/api/admin/users" && method === "GET")
             return reply(res, 200, { users: await store.listAccounts() });
+          const limitsMatch = path.match(
+            /^\/api\/admin\/users\/([^/]+)\/limits$/,
+          );
+          if (limitsMatch && method === "PUT") {
+            const data = await body(req);
+            if (
+              (data.dailyRunLimit !== null &&
+                typeof data.dailyRunLimit !== "number") ||
+              typeof data.dailyTokenLimit !== "number"
+            )
+              fail(400, "用户上限格式不正确。");
+            const account = await mutate(() =>
+              store.updateAccountLimits(
+                limitsMatch[1],
+                data.dailyRunLimit as number | null,
+                data.dailyTokenLimit as number,
+              ),
+            );
+            return reply(res, 200, { user: account });
+          }
           const accountMatch = path.match(
             /^\/api\/admin\/users\/([^/]+)(\/password)?$/,
           );
@@ -378,10 +405,15 @@ export function createPublicApiServer(options: PublicServerOptions) {
             return reply(res, 200, { ok: true });
           }
           if (path === "/api/admin/usage" && method === "GET")
-            return reply(res, 200, {
-              ...(await store.dashboardAll()),
-              embedding: embeddingStatus(),
-            });
+            return reply(
+              res,
+              200,
+              await store.adminUsageReport(
+                new URL(req.url!, "http://localhost").searchParams.get(
+                  "date",
+                ) ?? undefined,
+              ),
+            );
           fail(404, "管理接口不存在。");
         }
         if (path === "/api/sessions" && method === "GET")
@@ -407,8 +439,11 @@ export function createPublicApiServer(options: PublicServerOptions) {
           return reply(res, 200, {
             session,
             messages: await scoped.listMessages(session.id),
-            runs: await scoped.listRuns(session.id),
-            jobs: await scoped.listSessionJobs(session.id),
+            runs:
+              user.role === "admin" ? await scoped.listRuns(session.id) : [],
+            jobs: (await scoped.listSessionJobs(session.id)).map((job) =>
+              visibleJob(user, job),
+            ),
           });
         }
         if (match && method === "DELETE") {
@@ -426,8 +461,10 @@ export function createPublicApiServer(options: PublicServerOptions) {
           });
           return reply(res, 200, { ok: true });
         }
-        if (path === "/api/models" && method === "GET")
+        if (path === "/api/models" && method === "GET") {
+          admin(user);
           return reply(res, 200, { models: await modelsFor(user) });
+        }
         if (path === "/api/models" && method === "POST") {
           admin(user);
           const input = await validateModel(await body(req));
@@ -505,26 +542,38 @@ export function createPublicApiServer(options: PublicServerOptions) {
           if (!(await scoped.deleteMemory(match[1]))) fail(404, "记忆不存在。");
           return reply(res, 200, { ok: true });
         }
-        if (path === "/api/usage" && method === "GET")
+        if (path === "/api/usage" && method === "GET") {
+          admin(user);
           return reply(res, 200, {
             ...(await scoped.dashboard()),
             models: await modelsFor(user),
             embedding: embeddingStatus(),
           });
-        if (path === "/api/export" && method === "GET")
+        }
+        if (path === "/api/export" && method === "GET") {
+          if (user.role !== "admin") {
+            const data = await scoped.exportData();
+            return reply(res, 200, {
+              sessions: data.sessions,
+              messages: data.messages,
+              memories: data.memories,
+            });
+          }
           return reply(res, 200, {
             ...(await scoped.exportData()),
             models: await modelsFor(user),
           });
+        }
         if (path === "/api/jobs" && method === "GET") {
           const active =
             new URL(req.url!, "http://localhost").searchParams.get("active") ===
             "1";
           const jobs = await scoped.listJobs();
           return reply(res, 200, {
-            jobs: active
+            jobs: (active
               ? jobs.filter((j) => ["queued", "running"].includes(j.status))
-              : jobs,
+              : jobs
+            ).map((job) => visibleJob(user, job)),
           });
         }
         match = path.match(/^\/api\/sessions\/([^/]+)\/jobs$/);
@@ -533,13 +582,31 @@ export function createPublicApiServer(options: PublicServerOptions) {
           if ("apiKey" in data)
             fail(400, "公开服务由管理员配置模型，无需提交个人密钥。");
           const content = string(data.content, "问题", 1, 6000);
-          const modelId = string(data.modelId, "模型 ID", 1, 80);
           const idempotencyKey = string(
             data.idempotencyKey,
             "请求标识",
             8,
             100,
           );
+          const previous = await scoped.jobByRequest(idempotencyKey);
+          if (previous) {
+            if (previous.sessionId !== match[1] || previous.content !== content)
+              fail(409, "请求标识已用于另一个任务，请重新提交。");
+            return reply(res, 202, { job: visibleJob(user, previous) });
+          }
+          let modelId: string | undefined;
+          // The server chooses a configured service; visitors do not choose models or prices.
+          for (const profile of await store.listModels()) {
+            if (
+              profile.enabled &&
+              profile.dailyTokenLimit > 0 &&
+              (await store.getModelSecret(profile.id))
+            ) {
+              modelId = profile.id;
+              break;
+            }
+          }
+          if (!modelId) fail(503, "解读服务暂未开放，请稍后再来。");
           const model = await store.getModel(modelId);
           if (
             !model?.enabled ||
@@ -559,13 +626,13 @@ export function createPublicApiServer(options: PublicServerOptions) {
             settings.dailyRunLimit,
           );
           if (options.startWorker !== false) worker.wake();
-          return reply(res, 202, { job });
+          return reply(res, 202, { job: visibleJob(user, job) });
         }
         match = path.match(/^\/api\/jobs\/([^/]+)(\/cancel)?$/);
         if (match && method === "GET" && !match[2]) {
           const job = await scoped.getJob(match[1]);
           if (!job) fail(404, "任务不存在。");
-          return reply(res, 200, { job });
+          return reply(res, 200, { job: visibleJob(user, job) });
         }
         if (match && method === "POST" && match[2]) {
           if (!(await scoped.getJob(match[1]))) fail(404, "任务不存在。");

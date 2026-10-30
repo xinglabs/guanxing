@@ -1,3 +1,4 @@
+import type { AdminUsageReport } from "./lib/admin-usage";
 import type { ChartInput } from "./lib/chart";
 
 export type Currency = "USD" | "CNY";
@@ -99,6 +100,8 @@ export interface Account {
   id: string;
   username: string;
   role: "admin" | "user";
+  dailyRunLimit?: number | null;
+  dailyTokenLimit?: number;
   disabled?: boolean;
   createdAt?: string;
 }
@@ -315,7 +318,7 @@ export const workspaceApi = {
     request<{ ok: true }>(`/runs/${idPath(id)}/cancel`, { method: "POST" }),
   enqueue: (
     id: string,
-    body: { content: string; modelId: string; idempotencyKey: string },
+    body: { content: string; modelId?: string; idempotencyKey: string },
     signal?: AbortSignal,
   ) =>
     request<{ job: AgentJob }>(`/sessions/${idPath(id)}/jobs`, {
@@ -354,6 +357,18 @@ export const workspaceApi = {
       method: "POST",
       body: { password },
     }),
-  adminUsage: () => request<Dashboard>("/admin/usage"),
+  adminUsage: (date?: string, signal?: AbortSignal) =>
+    request<AdminUsageReport>(
+      "/admin/usage" + (date ? "?date=" + encodeURIComponent(date) : ""),
+      { signal },
+    ),
+  updateUserLimits: (
+    id: string,
+    limits: { dailyRunLimit: number | null; dailyTokenLimit: number },
+  ) =>
+    request<{ user: Account }>(`/admin/users/${idPath(id)}/limits`, {
+      method: "PUT",
+      body: limits,
+    }),
   exportData: () => request<Record<string, unknown>>("/export"),
 };

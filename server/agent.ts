@@ -254,6 +254,7 @@ export async function runAgent({
   signal,
   fetcher = fetch,
   controlledThinking = false,
+  userTokenBudget,
 }: {
   store: AgentStore;
   sessionId: string;
@@ -263,6 +264,7 @@ export async function runAgent({
   signal?: AbortSignal;
   fetcher?: typeof fetch;
   controlledThinking?: boolean;
+  userTokenBudget?: () => Promise<{ limit: number; used: number }>;
 }): Promise<RunResult> {
   if (typeof content !== "string" || !content.trim() || content.length > 12000)
     throw new AgentError("请输入 1—12000 字的内容。");
@@ -358,6 +360,19 @@ export async function runAgent({
         1024;
       const daily = await store.dailyUsage(modelId);
       let maxOutput = MAX_OUTPUT;
+      if (userTokenBudget) {
+        const budget = await userTokenBudget();
+        if (budget.limit > 0) {
+          maxOutput = Math.min(
+            maxOutput,
+            budget.limit - budget.used - inputBound,
+          );
+          if (maxOutput < 64)
+            throw new AgentError(
+              "今天的解读暂时告一段落，请明天再来，或联系管理员。",
+            );
+        }
+      }
       if (profile.dailyTokenLimit > 0)
         maxOutput = Math.min(
           maxOutput,

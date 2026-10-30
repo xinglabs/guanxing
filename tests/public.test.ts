@@ -274,13 +274,13 @@ test(
           400,
         );
         modelId = (await good("admin", "/models", "POST", model)).model.id;
-        assert.equal((await good("alice", "/models")).models.length, 0);
+        assert.equal((await api("alice", "/models")).status, 403);
         await good("admin", `/models/${modelId}/secret`, "POST", {
           apiKey: fakeKey,
         });
-        const publicModel = (await good("alice", "/models")).models[0];
-        assert.equal(publicModel.baseUrl, "");
-        assert.equal(publicModel.hosted, true);
+        assert.equal((await api("alice", "/models")).status, 403);
+        assert.equal((await good("admin", "/models")).models[0].hosted, true);
+        assert.equal((await api("alice", "/admin/usage")).status, 403);
         assert.ok(!(await store.getModelSecret(modelId))!.includes(fakeKey));
         assert.equal(
           (await api("alice", `/models/${modelId}/secret`, "DELETE")).status,
@@ -301,7 +301,6 @@ test(
       async () => {
         const request = {
           content: "读取我的命盘",
-          modelId,
           idempotencyKey: randomUUID(),
         };
         const first = await api(
@@ -312,6 +311,7 @@ test(
         );
         assert.equal(first.status, 202);
         const aliceJob = first.data.job;
+        assert.equal(aliceJob.modelId, undefined);
         await enteredPromise;
         const duplicate = await good(
           "alice",
@@ -324,6 +324,7 @@ test(
         const bobJob = (
           await good("bob", `/sessions/${bobSession}/jobs`, "POST", {
             ...request,
+            modelId: "visitor-cannot-choose-a-model",
             idempotencyKey: randomUUID(),
           })
         ).job;
@@ -349,10 +350,59 @@ test(
         assert.ok(
           !JSON.stringify(requests[2]).includes("only-alice-private-memory"),
         );
-        const aliceUsage = await good("alice", "/usage");
-        assert.equal(aliceUsage.today.totalTokens, 300);
+        assert.equal((await api("alice", "/usage")).status, 403);
         const platformUsage = await good("admin", "/admin/usage");
-        assert.equal(platformUsage.today.totalTokens, 600);
+        assert.equal(platformUsage.daily.totalTokens, 600);
+        assert.equal(platformUsage.allTime.totalTokens, 600);
+        for (const name of ["alice", "bob"]) {
+          const row = platformUsage.users.find((u: any) => u.username === name);
+          assert.equal(row.totalTokens, 300);
+          assert.equal(row.requests, 1);
+          assert.equal(row.calls, 2);
+        }
+        assert.equal(
+          (await api("admin", "/admin/usage?date=2026-02-30")).status,
+          400,
+        );
+        const exported = await good("alice", "/export");
+        for (const key of ["usage", "models", "runs"])
+          assert.equal(exported[key], undefined);
+        assert.equal(
+          (await good("alice", `/jobs/${aliceJob.id}`)).job.result,
+          undefined,
+        );
+        assert.deepEqual(
+          (await good("alice", `/sessions/${aliceSession}`)).runs,
+          [],
+        );
+        assert.equal(
+          (await good("alice", "/account")).dailyRunLimit,
+          undefined,
+        );
+        const alice = platformUsage.users.find(
+          (u: any) => u.username === "alice",
+        );
+        assert.equal(
+          (
+            await api("alice", `/admin/users/${alice.userId}/limits`, "PUT", {
+              dailyRunLimit: 20,
+              dailyTokenLimit: 10000,
+            })
+          ).status,
+          403,
+        );
+        const changed = await good(
+          "admin",
+          `/admin/users/${alice.userId}/limits`,
+          "PUT",
+          { dailyRunLimit: 10, dailyTokenLimit: 100000 },
+        );
+        assert.equal(changed.user.dailyRunLimit, 10);
+        assert.equal(changed.user.dailyTokenLimit, 100000);
+        assert.equal(
+          (await good("alice", "/health")).user.dailyTokenLimit,
+          undefined,
+        );
       },
     );
     await t.test(

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import AdminUsage from "./AdminUsage";
 import {
   ArrowLeft,
   Plus,
@@ -475,13 +476,22 @@ function AccountRow({
   const [resetting, setResetting] = useState(false);
   const [password, setPassword] = useState("");
   const [working, setWorking] = useState(false);
+  const [runLimit, setRunLimit] = useState(
+    user.dailyRunLimit?.toString() || "",
+  );
+  const [tokenLimit, setTokenLimit] = useState(user.dailyTokenLimit || 0);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    setRunLimit(user.dailyRunLimit?.toString() ?? "");
+    setTokenLimit(user.dailyTokenLimit || 0);
+  }, [user.dailyRunLimit, user.dailyTokenLimit]);
   return (
     <article className="ws-user-row">
       <div className="ws-user-title">
         <div>
           <strong>{user.username}</strong>
           <span>
-            {user.role === "admin" ? "管理员" : "普通用户"}
+            {user.role === "admin" ? "系统管理员" : "普通用户"}
             {user.id === selfId ? " · 当前账号" : ""}
           </span>
         </div>
@@ -491,6 +501,71 @@ function AccountRow({
       </div>
       {user.createdAt && (
         <p className="ws-muted">注册于 {time(user.createdAt)}</p>
+      )}
+      {user.role === "user" && (
+        <form
+          className="ws-user-limits"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setWorking(true);
+            setSaved(false);
+            try {
+              await api.updateUserLimits(user.id, {
+                dailyRunLimit: runLimit === "" ? null : Number(runLimit),
+                dailyTokenLimit: tokenLimit,
+              });
+              await onChange();
+              setSaved(true);
+            } catch (error) {
+              onError(error);
+            } finally {
+              setWorking(false);
+            }
+          }}
+        >
+          <label>
+            每日提问次数
+            <input
+              type="number"
+              min={0}
+              max={1000}
+              step={1}
+              value={runLimit}
+              placeholder="留空使用默认值"
+              onChange={(e) => {
+                setRunLimit(e.target.value);
+                setSaved(false);
+              }}
+            />
+          </label>
+          <label>
+            每日 Token 上限
+            <input
+              type="number"
+              required
+              min={0}
+              max={1000000000}
+              step={1}
+              value={tokenLimit}
+              onChange={(e) => {
+                setTokenLimit(Number(e.target.value));
+                setSaved(false);
+              }}
+            />
+          </label>
+          <button className="ws-button" disabled={working}>
+            保存用户上限
+          </button>
+          <p className="ws-muted">
+            次数 0 表示暂停该用户提问；Token 0
+            表示不单独限制。已用量不会因修改上限而清零，失败或停止的请求也计入。
+          </p>
+          {saved && (
+            <p role="status" className="ws-active">
+              该用户的上限已保存。
+            </p>
+          )}
+        </form>
       )}
       {user.id !== selfId && (
         <div className="ws-row-actions">
@@ -705,9 +780,9 @@ export default function Workspace({
         ? Promise.resolve({ memories: [] as Memory[] })
         : api.memories(),
       online && currentHealth?.user?.role === "admin"
-        ? api.adminUsage()
+        ? Promise.resolve(null)
         : api.usage(),
-      online ? api.account() : Promise.resolve(null),
+      online && initialTab !== "admin" ? api.account() : Promise.resolve(null),
       online && initialTab !== "admin"
         ? api.activeJobs()
         : Promise.resolve(null),
@@ -2209,7 +2284,7 @@ export default function Workspace({
             <main className="ws-panel">
               <div className="ws-section-heading">
                 <div>
-                  <p className="ws-eyebrow">MODELS / 选择自己的模型</p>
+                  <p className="ws-eyebrow">MODELS / 全站解读服务</p>
                   <h1>服务、价格、限额。</h1>
                   <p>
                     {publicMode
@@ -2486,44 +2561,20 @@ export default function Workspace({
             <main className="ws-panel">
               <div className="ws-section-heading">
                 <div>
-                  <p className="ws-eyebrow">ACCOUNT / 你的私人空间</p>
+                  <p className="ws-eyebrow">ACCOUNT / 系统管理员</p>
                   <h1>{health?.user?.username}，欢迎回来。</h1>
                   <p>
-                    对话、命盘和记忆按账号独立保存。你可以导出自己的数据，随时删除不想留下的对话和记忆。
+                    此账号负责网站配置、用户管理和全站用量。普通用户的排盘与对话从首页进入。
                   </p>
                 </div>
                 <UserRound className="ws-section-symbol" size={38} />
               </div>
               <div className="ws-account-layout">
                 <section className="ws-account-summary">
-                  <h2>我的使用情况</h2>
-                  <dl>
-                    <div>
-                      <dt>今日已提交</dt>
-                      <dd>{accountUsage?.usedToday ?? "—"} 次</dd>
-                    </div>
-                    <div>
-                      <dt>每日上限</dt>
-                      <dd>{accountUsage?.dailyRunLimit ?? "—"} 次</dd>
-                    </div>
-                    <div>
-                      <dt>账号身份</dt>
-                      <dd>{isAdmin ? "站点管理员" : "普通用户"}</dd>
-                    </div>
-                  </dl>
+                  <h2>系统管理员账号</h2>
+                  <p>{health?.user?.username}</p>
                   <p className="ws-muted">
-                    每天按站点时区重置额度。失败或停止的提交也会记录，避免反复请求造成额外消耗。
-                  </p>
-                  <button
-                    className="ws-button"
-                    disabled={busy}
-                    onClick={() => void exportData()}
-                  >
-                    <Download size={15} />
-                    导出我的对话与记忆
-                  </button>
-                  <p className="ws-muted">
-                    模型提出的记忆需要你确认后才生效。请避免保存不必要的敏感资料。
+                    模型密钥、用户上限和费用统计仅在管理后台配置与查看。此账号无需创建个人命盘。
                   </p>
                 </section>
                 <PasswordForm
@@ -2570,7 +2621,7 @@ export default function Workspace({
                         关闭注册后，已有用户仍可登录。需要暂停某个账号时，可在右侧停用。
                       </p>
                       <label>
-                        每位用户每日最多提交次数
+                        未单独配置用户的默认每日次数
                         <input
                           type="number"
                           min={1}
@@ -2587,7 +2638,8 @@ export default function Workspace({
                         />
                       </label>
                       <p className="ws-muted">
-                        额度包含已提交任务。建议小范围试用时从每天 10 次开始。
+                        可在右侧单独设置每位用户的次数与 Token
+                        上限。失败和停止也计入次数。
                       </p>
                       <button className="ws-button primary" disabled={busy}>
                         <Check size={15} />
@@ -2622,7 +2674,10 @@ export default function Workspace({
               </div>
             </main>
           )}
-          {tab === "usage" && (
+          {tab === "usage" && publicMode && isAdmin && (
+            <AdminUsage onError={report} refreshToken={pollVersion} />
+          )}
+          {tab === "usage" && !(publicMode && isAdmin) && (
             <main className="ws-panel ws-usage-panel">
               <div className="ws-section-heading">
                 <div>

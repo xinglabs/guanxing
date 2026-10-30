@@ -6,6 +6,8 @@ export interface Account {
   role: "admin" | "user";
   disabled: boolean;
   createdAt: string;
+  dailyRunLimit?: number | null;
+  dailyTokenLimit?: number;
 }
 
 export interface AccountCredentials extends Account {

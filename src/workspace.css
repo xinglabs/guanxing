@@ -1738,3 +1738,12 @@
 .ws-admin.ws-ready .ws-tabs .ws-refresh {
   margin: 16px 0 0;
 }
+
+.ws-report-controls { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; }
+.ws-report-controls label, .ws-user-limits label { display: grid; gap: 8px; color: var(--ws-muted, #a7aaa1); font-size: 13px; }
+.ws-report-controls input, .ws-user-limits input { width: 100%; min-height: 40px; padding: 8px 12px; color: #e7e5dc; background: #111819; border: 1px solid #394143; border-radius: 2px; color-scheme: dark; font: inherit; }
+.ws-report-controls input:focus-visible, .ws-user-limits input:focus-visible { outline: 2px solid #b7a879; outline-offset: 2px; }
+.ws-report-cost { display: block; white-space: nowrap; }
+.ws-user-limits { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 14px; padding: 18px 0; }
+.ws-user-limits p { grid-column: 1 / -1; margin: 0; }
+@media (max-width: 700px) { .ws-user-limits { grid-template-columns: 1fr; } .ws-report-controls { width: 100%; } }

@@ -38,7 +38,6 @@ import type {
   Message,
   Memory,
   AgentJob,
-  AccountUsage,
   ModelProfile,
   SessionDetail,
 } from "./workspace-api";
@@ -51,7 +50,6 @@ type Panel =
 type Pending = {
   sessionId: string;
   content: string;
-  modelId: string;
   idempotencyKey: string;
 };
 const blankBirth: ChartInput = {
@@ -132,7 +130,6 @@ export default function ReadingRoom({
   const [messages, setMessages] = useState<Message[]>([]);
   const [models, setModels] = useState<ModelProfile[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
-  const [account, setAccount] = useState<AccountUsage | null>(null);
   const [job, setJob] = useState<AgentJob | null>(null);
   const [draft, setDraft] = useState("");
   const [pendingText, setPendingText] = useState("");
@@ -197,7 +194,6 @@ export default function ReadingRoom({
     setSessions([]);
     setMemories([]);
     setModels([]);
-    setAccount(null);
     setJob(null);
     setPendingText("");
     setDraft("");
@@ -280,19 +276,16 @@ export default function ReadingRoom({
       return;
     }
     const version = epoch.current;
-    const [recordData, modelData, memoryData, accountData, jobData] =
-      await Promise.all([
-        api.sessions(),
-        api.models(),
-        api.memories(),
-        hosted ? api.account() : Promise.resolve(null),
-        hosted ? api.activeJobs() : Promise.resolve({ jobs: [] as AgentJob[] }),
-      ]);
+    const [recordData, modelData, memoryData, jobData] = await Promise.all([
+      api.sessions(),
+      hosted ? Promise.resolve({ models: [] as ModelProfile[] }) : api.models(),
+      api.memories(),
+      hosted ? api.activeJobs() : Promise.resolve({ jobs: [] as AgentJob[] }),
+    ]);
     if (!valid(version)) return;
     setSessions(recordData.sessions);
     setModels(modelData.models);
     setMemories(memoryData.memories);
-    setAccount(accountData);
     setJob(jobData.jobs.find((j) => isActive(j)) || null);
     if (restore && !restored.current) {
       restored.current = true;
@@ -489,7 +482,7 @@ export default function ReadingRoom({
       setPanel("connection");
       return;
     }
-    if (mode !== "static" && !model) {
+    if (mode === "local" && !model) {
       setError("解读服务暂未开放，请稍后再来。");
       return;
     }
@@ -563,7 +556,6 @@ export default function ReadingRoom({
               ? pending.current
               : {
                   sessionId: id,
-                  modelId: model!.id,
                   content,
                   idempotencyKey: crypto.randomUUID(),
                 };
@@ -830,9 +822,6 @@ export default function ReadingRoom({
       setPanel("login");
     } else setPanel(target);
   }
-  const quota = account
-    ? Math.max(0, account.dailyRunLimit - account.usedToday)
-    : null;
   const sessionTitle = birth
     ? isDemo || birth.name === sampleInput.name
       ? "示例星图"
@@ -1238,11 +1227,9 @@ export default function ReadingRoom({
                     <span>
                       {checking
                         ? "正在连接…"
-                        : quota !== null
-                          ? `今日还可提问 ${quota} 次`
-                          : hosted
-                            ? "登录后保存你的解读"
-                            : "本次页面内连续对话"}
+                        : hosted
+                          ? "解读会自动保存，可随时继续聊"
+                          : "本次页面内连续对话"}
                     </span>
                     {isActive(currentJob) || localRunning ? (
                       <button
@@ -1258,12 +1245,7 @@ export default function ReadingRoom({
                       <button
                         className="reader-send"
                         aria-label="发送问题"
-                        disabled={
-                          composerDisabled ||
-                          running ||
-                          !draft.trim() ||
-                          quota === 0
-                        }
+                        disabled={composerDisabled || running || !draft.trim()}
                       >
                         {busy ? (
                           <LoaderCircle className="spin" size={18} />
@@ -1471,9 +1453,7 @@ export default function ReadingRoom({
                   </button>
                   {deleteId === session.id ? (
                     <div className="reader-delete-confirm">
-                      <span>
-                        删除这段解读与附带命盘？当天已用次数不会恢复。
-                      </span>
+                      <span>删除这段解读与附带命盘？</span>
                       <button
                         disabled={busy}
                         onClick={() => void removeSession(session.id)}
@@ -1519,11 +1499,7 @@ export default function ReadingRoom({
           <div className="reader-modal-heading">
             <span className="chapter">A PLACE OF YOUR OWN</span>
             <h2>{health?.user?.username || "旅人"}，欢迎回来。</h2>
-            <p>
-              {quota !== null
-                ? `今天还可以提问 ${quota} 次。`
-                : "你的命盘与解读，都留在这里。"}
-            </p>
+            <p>你的命盘与解读，都留在这里。</p>
           </div>
           <div className="reader-account-links">
             <button onClick={() => setPanel("memories")}>

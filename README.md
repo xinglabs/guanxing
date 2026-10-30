@@ -2,7 +2,7 @@
 
 **从一张星图，开始一段有记忆的对话。**
 
-Guanxing V3.1 是 XINGLABS 的开源紫微斗数应用。填写出生日期与时辰后，命盘与自由对话在同一页展开。完整版本提供可确认的长期记忆，并将用户页面与管理后台分开。每位用户拥有自己的对话和记忆，管理员统一管理模型与额度。
+Guanxing V3.2 是 XINGLABS 的开源紫微斗数应用。填写出生日期与时辰后，命盘与自由对话在同一页展开。完整版本提供可确认的长期记忆，并将用户页面与管理后台分开。系统管理员统一配置模型，按用户设置每日次数与 Token 上限，并按日期查看每位用户及全站的消耗；普通用户无需配置或查看这些内容。
 
 [公开体验](https://xinglabs.github.io/guanxing/) · [XINGLABS](https://xinglabs.github.io/) · [本地部署](docs/local-deployment.md) · [服务器部署](docs/server-deployment.md) · [Agent 架构](docs/agent-architecture.md)
 
@@ -35,7 +35,7 @@ GitHub Pages 发布的是静态页面，不能承载 API 或数据库。Docker �
 
 完整的阿里云 Linux 3 操作步骤、初始化令牌、域名、更新、备份及国内镜像下载失败的处理，见 [服务器部署指南](docs/server-deployment.md)。
 
-已有网站按 [v3.1 升级说明](docs/upgrading-v3.1.md) 更新，沿用域名、账号、记忆和模型配置。
+已有网站按 [v3.2 升级说明](docs/upgrading-v3.1.md) 更新，沿用域名、账号、记忆和模型配置。
 
 ## 启动本地完整版本
 

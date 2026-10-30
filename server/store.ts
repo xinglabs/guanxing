@@ -72,6 +72,8 @@ const usage = (r: Row): Usage => ({
   createdAt: iso(r.created_at),
 });
 const account = (r: Row): Account => ({
+  dailyRunLimit: r.daily_run_limit == null ? null : Number(r.daily_run_limit),
+  dailyTokenLimit: Number(r.daily_token_limit || 0),
   id: r.id,
   username: r.username,
   role: r.role,
@@ -178,6 +180,7 @@ export class Store {
         CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id,updated_at);
         CREATE INDEX IF NOT EXISTS memories_user_idx ON memories(user_id,status,session_id);
         CREATE INDEX IF NOT EXISTS usage_user_date_idx ON usage_ledger(user_id,created_at);
+        CREATE INDEX IF NOT EXISTS usage_date_idx ON usage_ledger(created_at);
         CREATE INDEX IF NOT EXISTS runs_user_date_idx ON runs(user_id,created_at);
         CREATE TABLE IF NOT EXISTS model_credentials (
           model_id text PRIMARY KEY REFERENCES models(id) ON DELETE CASCADE,
@@ -188,6 +191,8 @@ export class Store {
           daily_run_limit integer NOT NULL DEFAULT 10 CHECK(daily_run_limit BETWEEN 1 AND 1000)
         );
         INSERT INTO site_settings(id) VALUES(1) ON CONFLICT DO NOTHING;
+        ALTER TABLE accounts ADD COLUMN IF NOT EXISTS daily_run_limit integer CHECK(daily_run_limit BETWEEN 0 AND 1000);
+        ALTER TABLE accounts ADD COLUMN IF NOT EXISTS daily_token_limit bigint NOT NULL DEFAULT 0 CHECK(daily_token_limit BETWEEN 0 AND 1000000000);
         CREATE TABLE IF NOT EXISTS agent_jobs (
           id text PRIMARY KEY, user_id text NOT NULL REFERENCES accounts(id),
           session_id text NOT NULL, model_id text NOT NULL, content text NOT NULL,
@@ -377,6 +382,47 @@ export class Store {
     return {
       registrationOpen: row?.registration_open ?? false,
       dailyRunLimit: row?.daily_run_limit ?? 10,
+    };
+  }
+  async updateAccountLimits(
+    id: string,
+    dailyRunLimit: number | null,
+    dailyTokenLimit: number,
+  ) {
+    this.rootOnly();
+    if (
+      (dailyRunLimit !== null &&
+        (!Number.isSafeInteger(dailyRunLimit) ||
+          dailyRunLimit < 0 ||
+          dailyRunLimit > 1000)) ||
+      !Number.isSafeInteger(dailyTokenLimit) ||
+      dailyTokenLimit < 0 ||
+      dailyTokenLimit > 1000000000
+    )
+      throw new StoreError(
+        400,
+        "每日次数需为 0—1000，Token 上限需为 0—10 亿的整数。",
+      );
+    const result = await this.pool.query(
+      "UPDATE accounts SET daily_run_limit=$2,daily_token_limit=$3 WHERE id=$1 AND role='user' RETURNING *",
+      [id, dailyRunLimit, dailyTokenLimit],
+    );
+    if (!result.rows[0])
+      throw new StoreError(400, "只能设置普通用户的使用上限。");
+    return account(result.rows[0]);
+  }
+  async dailyUserBudget() {
+    const result = await this.pool.query(
+      `SELECT a.daily_token_limit AS limit,
+      COALESCE((SELECT sum(total_tokens) FROM usage_ledger WHERE user_id=a.id
+        AND (created_at AT TIME ZONE $2)::date=(now() AT TIME ZONE $2)::date),0) AS used
+      FROM accounts a WHERE a.id=$1`,
+      [this.userId, this.timezone],
+    );
+    if (!result.rows[0]) throw new StoreError(403, "账号不存在。");
+    return {
+      limit: Number(result.rows[0].limit),
+      used: Number(result.rows[0].used),
     };
   }
   async updateSiteSettings(patch: Partial<SiteSettings>) {
@@ -810,6 +856,107 @@ export class Store {
       )
     ).rows.map(usage);
   }
+  async adminUsageReport(date?: string) {
+    this.rootOnly();
+    if (
+      date !== undefined &&
+      (!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+        date < "1900-01-01" ||
+        !Number.isFinite(Date.parse(date)) ||
+        new Date(date).toISOString().slice(0, 10) !== date)
+    )
+      throw new StoreError(400, "请选择有效日期，格式为 YYYY-MM-DD。");
+    const selectedDate: string =
+      date ||
+      (
+        await this.pool.query(
+          "SELECT to_char(now() AT TIME ZONE $1, 'YYYY-MM-DD') AS day",
+          [this.timezone],
+        )
+      ).rows[0].day;
+    const totals = (rows: Row[]) => ({
+      calls: rows.reduce((n, r) => n + Number(r.calls), 0),
+      inputTokens: rows.reduce((n, r) => n + Number(r.input), 0),
+      outputTokens: rows.reduce((n, r) => n + Number(r.output), 0),
+      totalTokens: rows.reduce((n, r) => n + Number(r.total), 0),
+      unverifiedCalls: rows.reduce((n, r) => n + Number(r.unverified), 0),
+      costs: rows.map((r) => ({
+        currency: r.currency as "CNY" | "USD",
+        amount: Number(r.cost),
+      })),
+    });
+    // Aggregate the complete ledger, independently of the paged request list.
+    const [dailyRows, allRows, accountRows, requestRows] = await Promise.all([
+      this.pool.query(
+        `SELECT user_id,currency,count(*) AS calls,
+        sum(input_tokens) AS input,sum(output_tokens) AS output,sum(total_tokens) AS total,
+        sum(estimated_cost) AS cost,count(*) FILTER (WHERE usage_source <> 'provider') AS unverified
+        FROM usage_ledger WHERE created_at >= ($1::date::timestamp AT TIME ZONE $2)
+        AND created_at < (($1::date + 1)::timestamp AT TIME ZONE $2)
+        GROUP BY user_id,currency ORDER BY user_id,currency`,
+        [selectedDate, this.timezone],
+      ),
+      this.pool
+        .query(`SELECT currency,count(*) AS calls,sum(input_tokens) AS input,
+        sum(output_tokens) AS output,sum(total_tokens) AS total,sum(estimated_cost) AS cost,
+        count(*) FILTER (WHERE usage_source <> 'provider') AS unverified
+        FROM usage_ledger GROUP BY currency ORDER BY currency`),
+      this.pool.query(
+        "SELECT id,username,role,disabled FROM accounts ORDER BY username",
+      ),
+      this.pool.query(
+        `SELECT user_id,count(*) AS requests FROM agent_jobs
+        WHERE created_at >= ($1::date::timestamp AT TIME ZONE $2)
+        AND created_at < (($1::date + 1)::timestamp AT TIME ZONE $2) GROUP BY user_id`,
+        [selectedDate, this.timezone],
+      ),
+    ]);
+    const grouped = new Map<string, Row[]>();
+    for (const row of dailyRows.rows)
+      grouped.set(row.user_id, [...(grouped.get(row.user_id) || []), row]);
+    const requests = new Map(
+      requestRows.rows.map((r) => [r.user_id, Number(r.requests)]),
+    );
+    const users = accountRows.rows.map((r) => ({
+      userId: r.id as string,
+      username: r.username as string,
+      role: r.role as "admin" | "user",
+      disabled: Boolean(r.disabled),
+      requests: requests.get(r.id) || 0,
+      ...totals(grouped.get(r.id) || []),
+    }));
+    // Preserve attribution if historical ledger rows outlive an account.
+    const knownUsers = new Set(users.map((u) => u.userId));
+    for (const [userId, rows] of grouped)
+      if (!knownUsers.has(userId))
+        users.push({
+          userId,
+          username: "历史账号",
+          role: "user",
+          disabled: true,
+          requests: requests.get(userId) || 0,
+          ...totals(rows),
+        });
+    users.sort(
+      (a, b) =>
+        b.totalTokens - a.totalTokens || a.username.localeCompare(b.username),
+    );
+    const daily = totals(dailyRows.rows);
+    const costs = new Map<"CNY" | "USD", number>();
+    for (const c of daily.costs)
+      costs.set(c.currency, (costs.get(c.currency) || 0) + c.amount);
+    daily.costs = Array.from(costs, ([currency, amount]) => ({
+      currency,
+      amount,
+    }));
+    return {
+      date: selectedDate,
+      timezone: this.timezone,
+      daily,
+      allTime: totals(allRows.rows),
+      users,
+    };
+  }
   async dashboard() {
     return this.aggregateDashboard(this.userId);
   }
@@ -928,7 +1075,7 @@ export class Store {
       await client.query("SELECT pg_advisory_xact_lock(713042603)");
       const actor = (
         await client.query(
-          "SELECT id FROM accounts WHERE id=$1 AND NOT disabled FOR SHARE",
+          "SELECT id,daily_run_limit,daily_token_limit FROM accounts WHERE id=$1 AND NOT disabled FOR SHARE",
           [input.userId],
         )
       ).rows[0];
@@ -984,8 +1131,25 @@ export class Store {
           )
         ).rows[0].count,
       );
-      if (used >= dailyLimit)
-        throw new StoreError(429, "今日可提交的任务次数已用完，请明天再试。");
+      if (used >= (actor.daily_run_limit ?? dailyLimit))
+        throw new StoreError(
+          429,
+          "今天的解读暂时告一段落，请明天再来，或联系管理员。",
+        );
+      if (Number(actor.daily_token_limit) > 0) {
+        const total = (
+          await client.query(
+            `SELECT COALESCE(sum(total_tokens),0) AS used
+          FROM usage_ledger WHERE user_id=$1 AND (created_at AT TIME ZONE $2)::date=(now() AT TIME ZONE $2)::date`,
+            [input.userId, this.timezone],
+          )
+        ).rows[0];
+        if (Number(total.used) >= Number(actor.daily_token_limit))
+          throw new StoreError(
+            429,
+            "今天的解读暂时告一段落，请明天再来，或联系管理员。",
+          );
+      }
       const queued = Number(
         (
           await client.query(
@@ -1019,6 +1183,13 @@ export class Store {
     const result = await this.pool.query(
       "SELECT * FROM agent_jobs WHERE id=$1 AND user_id=$2",
       [id, this.userId],
+    );
+    return result.rows[0] ? job(result.rows[0]) : null;
+  }
+  async jobByRequest(idempotencyKey: string): Promise<AgentJob | null> {
+    const result = await this.pool.query(
+      "SELECT * FROM agent_jobs WHERE user_id=$1 AND idempotency_key=$2",
+      [this.userId, idempotencyKey],
     );
     return result.rows[0] ? job(result.rows[0]) : null;
   }
