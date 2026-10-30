@@ -1431,9 +1431,9 @@ export default function Workspace({
       className={`ws-shell ${initialTab === "admin" ? "ws-admin" : ""} ${gate === "ready" ? "ws-ready" : ""}`}
     >
       <header className="ws-header">
-        <button className="ws-back" aria-label="返回用户页面" onClick={exit}>
+        <button className="ws-back" aria-label="返回首页" onClick={exit}>
           <ArrowLeft size={17} />
-          <span>返回用户页面</span>
+          <span>返回首页</span>
         </button>
         <div className="ws-brand">
           观星{" "}
@@ -1474,7 +1474,7 @@ export default function Workspace({
                 当前账号可以在用户页面查看命盘和对话，管理功能仅向管理员开放。
               </p>
               <button className="ws-button primary" onClick={exit}>
-                回到我的解读 <ArrowLeft size={16} />
+                返回首页 <ArrowLeft size={16} />
               </button>
               <button
                 className="ws-action"

@@ -165,6 +165,7 @@ export default function ReadingRoom({
   const composer = useRef<HTMLTextAreaElement>(null);
   const hosted = mode === "public";
   const authenticated = Boolean(health?.authenticated);
+  const administrator = authenticated && health?.user?.role === "admin";
   const currentJob = job?.sessionId === sessionId ? job : null;
   const running = isActive(job) || localRunning;
   const model = models.find((item) => item.enabled && (!hosted || item.hosted));
@@ -273,6 +274,11 @@ export default function ReadingRoom({
     }
   }
   async function loadAccount(nextHealth: Health, restore = false) {
+    // Administrators enter the dashboard before any personal chart is loaded.
+    if (nextHealth.authenticated && nextHealth.user?.role === "admin") {
+      onAdmin();
+      return;
+    }
     const version = epoch.current;
     const [recordData, modelData, memoryData, accountData, jobData] =
       await Promise.all([
@@ -335,6 +341,7 @@ export default function ReadingRoom({
     if (
       mode === "static" ||
       mode === "checking" ||
+      administrator ||
       checking ||
       busy ||
       loadingChart ||
@@ -343,7 +350,17 @@ export default function ReadingRoom({
       return;
     if (!authenticated) setPanel("login");
     else if (!chart && panel !== "history") setPanel("birth");
-  }, [mode, checking, busy, loadingChart, health, authenticated, chart, panel]);
+  }, [
+    mode,
+    administrator,
+    checking,
+    busy,
+    loadingChart,
+    health,
+    authenticated,
+    chart,
+    panel,
+  ]);
   useEffect(() => {
     if (chart) setSelected(chart.mingGongBranch);
   }, [chart]);
@@ -827,6 +844,13 @@ export default function ReadingRoom({
     busy || loadingChart || uncertain || mode === "checking";
   const requiresEntry =
     mode !== "static" && (checking || !authenticated || !chart || loadingChart);
+
+  if (administrator)
+    return (
+      <div className="page-loading" role="status">
+        正在打开管理后台…
+      </div>
+    );
 
   return (
     <div className="reader-shell">

@@ -333,7 +333,7 @@ export default function App() {
       <Suspense
         fallback={<div className="page-loading">正在打开管理后台…</div>}
       >
-        <Workspace initialTab="admin" onExit={() => begin()} />
+        <Workspace initialTab="admin" onExit={() => navigate("home")} />
       </Suspense>
     );
   if (view === "reading")
