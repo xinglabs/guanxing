@@ -43,7 +43,13 @@ import "./workspace.css";
 
 type Tab = "chat" | "memories" | "models" | "usage" | "account" | "site";
 type Gate =
-  "loading" | "unavailable" | "setup" | "login" | "register" | "ready";
+  | "loading"
+  | "unavailable"
+  | "setup"
+  | "login"
+  | "register"
+  | "ready"
+  | "forbidden";
 const tabs: Array<{ id: Tab; title: string; icon: typeof MessageSquare }> = [
   { id: "chat", title: "对话", icon: MessageSquare },
   { id: "memories", title: "记忆", icon: Bookmark },
@@ -632,6 +638,11 @@ export default function Workspace({
   const activeJobRef = useRef<AgentJob | null>(null);
   activeJobRef.current = activeJob;
   const visibleTabs = tabs.filter((item) => {
+    if (
+      initialTab === "admin" &&
+      !["models", "usage", "account", "site"].includes(item.id)
+    )
+      return false;
     if (item.id === "models") return canManageModels;
     if (item.id === "account") return publicMode;
     if (item.id === "site") return publicMode && isAdmin;
@@ -686,14 +697,20 @@ export default function Workspace({
     const epoch = accountEpoch.current;
     const online = currentHealth?.mode === "public";
     const loaded = await Promise.all([
-      api.sessions(),
+      initialTab === "admin"
+        ? Promise.resolve({ sessions: [] as Session[] })
+        : api.sessions(),
       api.models(),
-      api.memories(),
+      initialTab === "admin"
+        ? Promise.resolve({ memories: [] as Memory[] })
+        : api.memories(),
       online && currentHealth?.user?.role === "admin"
         ? api.adminUsage()
         : api.usage(),
       online ? api.account() : Promise.resolve(null),
-      online ? api.activeJobs() : Promise.resolve(null),
+      online && initialTab !== "admin"
+        ? api.activeJobs()
+        : Promise.resolve(null),
     ]).catch((error) => {
       if (epoch !== accountEpoch.current) return null;
       throw error;
@@ -766,9 +783,12 @@ export default function Workspace({
       if (
         health.mode === "public" &&
         initialTab === "admin" &&
+        health.authenticated &&
         health.user?.role !== "admin"
-      )
-        setTab("account");
+      ) {
+        setGate("forbidden");
+        return;
+      }
       if (health.needsSetup) setGate("setup");
       else if (health.authenticated) {
         try {
@@ -808,7 +828,7 @@ export default function Workspace({
   useEffect(() => {
     if (gate !== "ready") return;
     if (!visibleTabs.some((item) => item.id === tab))
-      setTab(publicMode && initialTab === "admin" ? "account" : "chat");
+      setTab(initialTab === "admin" ? "usage" : "chat");
   }, [gate, publicMode, isAdmin, tab, initialTab]);
   useEffect(() => {
     if (!sessionId || gate !== "ready") return;
@@ -1407,14 +1427,19 @@ export default function Workspace({
   }
 
   return (
-    <div className="ws-shell">
+    <div
+      className={`ws-shell ${initialTab === "admin" ? "ws-admin" : ""} ${gate === "ready" ? "ws-ready" : ""}`}
+    >
       <header className="ws-header">
-        <button className="ws-back" aria-label="返回星图" onClick={exit}>
+        <button className="ws-back" aria-label="返回用户页面" onClick={exit}>
           <ArrowLeft size={17} />
-          <span>返回星图</span>
+          <span>返回用户页面</span>
         </button>
         <div className="ws-brand">
-          观星 <span>WORKSPACE</span>
+          观星{" "}
+          <span>
+            {initialTab === "admin" ? "管理后台 / ADMIN" : "WORKSPACE"}
+          </span>
         </div>
         <span className="ws-local">
           <i />
@@ -1434,12 +1459,30 @@ export default function Workspace({
       </header>
       {gate !== "ready" ? (
         <main className="ws-gate">
-          <p className="ws-eyebrow">YOUR OWN SPACE / 你的私人观星室</p>
+          <p className="ws-eyebrow">ADMINISTRATION / 站点管理</p>
           {gate === "loading" ? (
             <>
               <LoaderCircle className="ws-spin" size={26} />
               <h1>连接你的观星室</h1>
               <p>正在确认服务与登录状态。</p>
+            </>
+          ) : gate === "forbidden" ? (
+            <>
+              <ShieldCheck size={28} />
+              <h1>这里是站点管理后台。</h1>
+              <p>
+                当前账号可以在用户页面查看命盘和对话，管理功能仅向管理员开放。
+              </p>
+              <button className="ws-button primary" onClick={exit}>
+                回到我的解读 <ArrowLeft size={16} />
+              </button>
+              <button
+                className="ws-action"
+                disabled={busy}
+                onClick={() => void logout()}
+              >
+                切换管理员账号
+              </button>
             </>
           ) : gate === "unavailable" ? (
             <>
@@ -1485,10 +1528,10 @@ export default function Workspace({
             <>
               <h1>
                 {gate === "setup"
-                  ? "开启这间观星室。"
+                  ? "初始化站点管理员。"
                   : gate === "register"
                     ? "留一个自己的位置。"
-                    : "回到你的观星室。"}
+                    : "登录管理后台。"}
               </h1>
               <p>
                 {publicMode
@@ -1496,7 +1539,7 @@ export default function Workspace({
                     ? "使用部署时生成的初始化口令，创建站点管理员。"
                     : gate === "register"
                       ? "创建独立账号。你的对话和确认的记忆只属于你。"
-                      : "登录后，继续你的对话与记忆。"
+                      : "管理站点用户、解读服务和模型用量。"
                   : gate === "setup"
                     ? "创建本地管理员密码。你的会话与确认的记忆将保存在自己的 PostgreSQL 数据库中。"
                     : "使用本地管理员密码登录，继续上一次对话。"}
@@ -1594,7 +1637,7 @@ export default function Workspace({
                     ? "创建管理员并进入"
                     : gate === "register"
                       ? "注册并进入"
-                      : "进入观星室"}
+                      : "进入管理后台"}
                 </button>
               </form>
               {publicMode && gate !== "setup" && (
@@ -1612,7 +1655,7 @@ export default function Workspace({
                     >
                       已有账号，前往登录 ↗
                     </button>
-                  ) : health?.registrationOpen ? (
+                  ) : health?.registrationOpen && initialTab !== "admin" ? (
                     <button
                       className="ws-action gold"
                       disabled={busy}
@@ -1627,7 +1670,7 @@ export default function Workspace({
                     </button>
                   ) : (
                     <p className="ws-muted">
-                      本站暂未开放注册，请联系站点管理员。
+                      管理员账号由站点初始化时创建，普通用户请从首页进入。
                     </p>
                   )}
                   {gate === "login" && (
@@ -1640,7 +1683,7 @@ export default function Workspace({
         </main>
       ) : (
         <>
-          <nav className="ws-tabs" aria-label="工作台功能">
+          <nav className="ws-tabs" aria-label="管理后台功能">
             {visibleTabs.map((item) => (
               <button
                 key={item.id}
@@ -1662,7 +1705,7 @@ export default function Workspace({
             <button
               className="ws-refresh"
               disabled={refreshing || busy}
-              aria-label="刷新工作台"
+              aria-label="刷新管理后台"
               onClick={() => void refresh()}
             >
               <RefreshCw size={16} className={refreshing ? "ws-spin" : ""} />
@@ -2745,7 +2788,7 @@ export default function Workspace({
         />
       )}
       <footer className="ws-footer">
-        <span>观星 · 紫微 / 私有的自我观察空间</span>
+        <span>观星 · 管理后台 / 模型、用量与站点设置</span>
         <span>传统文化与自我观察，不是科学预测。</span>
       </footer>
     </div>

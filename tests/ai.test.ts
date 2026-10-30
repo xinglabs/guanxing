@@ -183,7 +183,7 @@ test("invalid questions and empty credentials fail before network", async (t) =>
     /API Key/,
   );
   await assert.rejects(readChart(chart, config, ""), /问题/);
-  await assert.rejects(readChart(chart, config, "x".repeat(1001)), /问题/);
+  await assert.rejects(readChart(chart, config, "x".repeat(6001)), /问题/);
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(
@@ -191,4 +191,47 @@ test("invalid questions and empty credentials fail before network", async (t) =>
     /已停止/,
   );
   assert.equal(mock.mock.callCount(), 0);
+});
+
+test("follow-up preserves the user's exact question and prior dialogue without restarting a report", async (t) => {
+  const dialogue = [
+    { role: "user" as const, content: "只聊我的工作，不用给我整篇报告。" },
+    {
+      role: "assistant" as const,
+      content: "按这张命盘推断，更适合需要长期积累的工作。",
+    },
+  ];
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (_url: unknown, options?: RequestInit) => {
+      const body = JSON.parse(String(options?.body));
+      assert.deepEqual(body.messages.slice(2, 4), dialogue);
+      assert.deepEqual(JSON.parse(body.messages.at(-1).content), {
+        question: "你刚才说的长期积累，具体指什么？",
+      });
+      assert.equal(
+        JSON.parse(body.messages[1].content).chart.palaces.length,
+        12,
+      );
+      assert.ok(!String(options?.body).includes(sampleInput.date));
+      assert.ok(!String(options?.body).includes("PRIVATE_NAME_123"));
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "这里说的是经验和技能逐步叠加。" } }],
+        }),
+        { status: 200 },
+      );
+    },
+  );
+  assert.equal(
+    await readChart(
+      chart,
+      config,
+      "你刚才说的长期积累，具体指什么？",
+      undefined,
+      dialogue,
+    ),
+    "这里说的是经验和技能逐步叠加。",
+  );
 });

@@ -1,9 +1,9 @@
 .ws-shell {
-  --ws-ink: #0b1115;
+  --ws-ink: var(--scene-ground);
   --ws-panel: #10181d;
-  --ws-gold: #d3be92;
-  --ws-text: #e5e6df;
-  --ws-muted: #9da7a8;
+  --ws-gold: var(--gold);
+  --ws-text: var(--scene-text);
+  --ws-muted: var(--scene-muted);
   --ws-line: rgba(213, 217, 204, 0.14);
   position: relative;
   z-index: 20;
@@ -1614,4 +1614,127 @@
     border-left: 0;
     padding-left: 0;
   }
+}
+
+/* Administration is a separate surface; personal readings live at #reading. */
+.ws-admin .ws-header {
+  height: 84px;
+  background: #111a1d;
+  padding: 0 32px;
+  position: relative;
+  z-index: 3;
+}
+.ws-admin .ws-brand > span {
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #baaa86;
+}
+.ws-admin.ws-ready .ws-tabs {
+  position: absolute;
+  left: 0;
+  top: 84px;
+  bottom: 0;
+  width: 208px;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 38px 22px;
+  border-right: 1px solid var(--ws-line);
+  border-bottom: 0;
+  background: rgba(17, 27, 29, 0.8);
+}
+.ws-admin.ws-ready .ws-tabs > button {
+  padding: 13px 14px;
+  justify-content: flex-start;
+  border: 0;
+  font-size: 12px;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+  min-height: 46px;
+}
+.ws-admin.ws-ready .ws-tabs > button.active {
+  background: #cbb78912;
+  border-left: 2px solid var(--ws-gold);
+  color: var(--ws-gold);
+}
+.ws-admin.ws-ready .ws-panel {
+  width: calc(100% - 208px);
+  margin-left: 208px;
+  max-width: none;
+  padding: 45px clamp(28px, 4vw, 80px);
+}
+.ws-admin.ws-ready > .ws-banner {
+  margin-left: 240px;
+}
+.ws-admin .ws-footer {
+  margin-left: 208px;
+}
+.ws-admin .ws-section-heading {
+  border-bottom: 1px solid var(--ws-line);
+  padding-bottom: 30px;
+  margin-bottom: 30px;
+}
+.ws-admin .ws-section-heading h1 {
+  font-size: 34px;
+}
+.ws-admin .ws-section-heading p {
+  max-width: 680px;
+}
+.ws-admin .ws-gate {
+  max-width: 600px;
+}
+.ws-admin .ws-gate .ws-button {
+  margin-top: 22px;
+}
+.ws-admin .ws-gate .ws-action {
+  margin-top: 16px;
+}
+@media (max-width: 900px) {
+  .ws-admin .ws-header {
+    padding: 0 20px;
+  }
+  .ws-admin.ws-ready .ws-tabs {
+    position: relative;
+    top: 0;
+    bottom: auto;
+    width: 100%;
+    flex-direction: row;
+    padding: 8px 20px;
+    border-right: 0;
+    border-bottom: 1px solid var(--ws-line);
+    gap: 8px;
+    overflow: auto;
+  }
+  .ws-admin.ws-ready .ws-tabs > button {
+    padding: 11px 12px;
+    min-height: 42px;
+  }
+  .ws-admin.ws-ready .ws-tabs > button.active {
+    border-left: 0;
+    border-bottom: 2px solid var(--ws-gold);
+  }
+  .ws-admin.ws-ready .ws-panel {
+    width: 100%;
+    margin-left: 0;
+    padding: 28px 22px;
+  }
+  .ws-admin .ws-footer {
+    margin-left: 0;
+  }
+  .ws-admin .ws-section-heading h1 {
+    font-size: 28px;
+  }
+  .ws-admin.ws-ready > .ws-banner {
+    margin-left: 22px;
+  }
+}
+
+.ws-admin.ws-ready .ws-tabs > button.active::after {
+  display: none;
+}
+.ws-admin.ws-ready .ws-tabs .ws-refresh {
+  margin: 16px 0 0;
 }

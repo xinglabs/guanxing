@@ -83,7 +83,7 @@ if [[ "$ready" != true ]]; then
   exit 1
 fi
 
-url="http://127.0.0.1:${app_port}/#agent"
+url="http://127.0.0.1:${app_port}/#admin"
 printf 'Guanxing is ready: %s\nSet your administrator password in the first-run page.\n' "$url"
 if [[ "$open_browser" == true ]]; then
   if command -v open >/dev/null 2>&1; then open "$url" || true

@@ -12,7 +12,7 @@ export interface AIConfig {
 }
 
 export const aiPrivacyNote =
-  "点击解读后，十二宫星曜与问题会直接发送给你选择的模型服务。不会附带称呼或完整出生日期；密钥只保留在当前页面内存中，刷新即清除。问题中请勿填写不必要的个人信息。";
+  "点击解读后，十二宫星曜、问题及最近对话会直接发送给你选择的模型服务。不会自动附带称呼或完整出生日期；密钥只保留在当前页面内存中，刷新即清除。问题中请勿填写不必要的个人信息。";
 
 class SafeServiceError extends Error {}
 
@@ -65,6 +65,7 @@ export async function readChart(
   config: AIConfig,
   question: string,
   signal?: AbortSignal,
+  history: Array<{ role: "user" | "assistant"; content: string }> = [],
 ): Promise<string> {
   const endpoint = resolveEndpoint(config.baseUrl);
   if (
@@ -76,8 +77,8 @@ export async function readChart(
   if (!config.model.trim() || config.model.length > 200)
     throw new Error("请填写模型名称。");
   const prompt = question.trim();
-  if (!prompt || prompt.length > 1000)
-    throw new Error("请填写一个 1—1000 字的问题。");
+  if (!prompt || prompt.length > 6000)
+    throw new Error("请填写一个 1—6000 字的问题。");
   if (signal?.aborted) throw new Error("已停止解读。");
   const controller = new AbortController();
   const cancel = () => controller.abort();
@@ -105,10 +106,22 @@ export async function readChart(
         model: config.model.trim(),
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
+          ...(history.length
+            ? [
+                {
+                  role: "user",
+                  content: JSON.stringify({ chart: chartForAI(chart) }),
+                },
+                ...history.slice(-12).map((message) => ({
+                  role: message.role,
+                  content: message.content.slice(0, 6000),
+                })),
+              ]
+            : []),
           {
             role: "user",
             content: JSON.stringify({
-              chart: chartForAI(chart),
+              ...(history.length ? {} : { chart: chartForAI(chart) }),
               question: prompt,
             }),
           },
