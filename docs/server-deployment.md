@@ -27,15 +27,15 @@ sudo dnf install -y docker-compose-plugin
 
 优先使用 [GitHub Releases](https://github.com/xinglabs/guanxing/releases) 中已经发布的 **Linux amd64 离线部署包**。它包含网页服务、PostgreSQL/pgvector、Caddy 的镜像和部署脚本，不需要登录 GitHub，也不需要服务器连接 GHCR 或 Docker Hub 拉取镜像。首次下载仍需要能访问 GitHub；调用模型和申请 HTTPS 证书仍需要网络。
 
-以 `v3.2.0` 为例，在首次部署的服务器终端执行（已有 `/opt/guanxing` 时先看第 5 节更新步骤）：
+以 `v3.2.1` 为例，在首次部署的服务器终端执行（已有 `/opt/guanxing` 时先看第 5 节更新步骤）：
 
 ```bash
 cd /opt
-curl -fLO https://github.com/xinglabs/guanxing/releases/download/v3.2.0/guanxing-v3.2.0-linux-amd64.tar.gz
-curl -fLO https://github.com/xinglabs/guanxing/releases/download/v3.2.0/guanxing-v3.2.0-linux-amd64.tar.gz.sha256
-sha256sum -c guanxing-v3.2.0-linux-amd64.tar.gz.sha256
+curl -fLO https://github.com/xinglabs/guanxing/releases/download/v3.2.1/guanxing-v3.2.1-linux-amd64.tar.gz
+curl -fLO https://github.com/xinglabs/guanxing/releases/download/v3.2.1/guanxing-v3.2.1-linux-amd64.tar.gz.sha256
+sha256sum -c guanxing-v3.2.1-linux-amd64.tar.gz.sha256
 mkdir guanxing
-tar -xzf guanxing-v3.2.0-linux-amd64.tar.gz --strip-components=1 -C guanxing
+tar -xzf guanxing-v3.2.1-linux-amd64.tar.gz --strip-components=1 -C guanxing
 cd guanxing
 ./scripts/install-offline.sh
 ```
@@ -45,7 +45,7 @@ cd guanxing
 若服务器无法访问 GitHub，可在自己电脑从同一 Release 下载 `.tar.gz` 和 `.tar.gz.sha256` 两个文件，上传到 `/opt` 后从校验步骤继续：
 
 ```bash
-scp guanxing-v3.2.0-linux-amd64.tar.gz guanxing-v3.2.0-linux-amd64.tar.gz.sha256 root@YOUR_SERVER_IP:/opt/
+scp guanxing-v3.2.1-linux-amd64.tar.gz guanxing-v3.2.1-linux-amd64.tar.gz.sha256 root@YOUR_SERVER_IP:/opt/
 ```
 
 若你更习惯 Git，并且服务器可访问 GHCR 与 Docker Hub，也可以选择源码目录安装：
@@ -60,7 +60,7 @@ cd guanxing
 
 首次启动自动生成数据库密码、模型 Key 加密密钥、初始化令牌，写入权限为 `600` 的 `.env.server`；不会在启动日志里打印这些值。再次运行复用原值，不会重置账号或数据库。
 
-源码方式默认拉取预构建镜像 `ghcr.io/xinglabs/guanxing:latest`；离线包则使用包内固定版本的 `guanxing-web:v3.2.0`。两种方式都减少了在 2 GiB 服务器上安装依赖和编译的峰值内存。数据库使用 `pgvector/pgvector:pg17`，不安装任何本地模型。
+源码方式默认拉取预构建镜像 `ghcr.io/xinglabs/guanxing:latest`；离线包则使用包内固定版本的 `guanxing-web:v3.2.1`。两种方式都减少了在 2 GiB 服务器上安装依赖和编译的峰值内存。数据库使用 `pgvector/pgvector:pg17`，不安装任何本地模型。
 
 **此时服务只监听服务器的 `127.0.0.1:3000`。** 不要为 3000 或 5432 开放公网安全组端口。没有域名也可以通过下一步的 SSH 隧道安全使用。
 

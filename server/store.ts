@@ -948,7 +948,7 @@ export class Store {
     daily.costs = Array.from(costs, ([currency, amount]) => ({
       currency,
       amount,
-    }));
+    })).sort((a, b) => a.currency.localeCompare(b.currency));
     return {
       date: selectedDate,
       timezone: this.timezone,

@@ -1,15 +1,15 @@
-# 已有网站升级到 v3.2.0
+# 已有网站升级到 v3.2.1
 
 适用于已经在 `/opt/guanxing` 安装 v3.0 或 v3.1 系列离线包、配置好域名的网站。本次会自动为账号增加每日次数与 Token 上限字段，保留原配置、数据卷和 HTTPS 证书，不需要重新注册管理员或重新绑定域名。升级会短暂重启应用，先等当前解读完成。
 
 ## 1. 在自己电脑下载并上传
 
-从 [v3.2.0 Release](https://github.com/xinglabs/guanxing/releases/tag/v3.2.0) 下载两个同名文件：部署包和 `.sha256`。服务器访问 GitHub 慢时，在电脑下载后上传更稳。
+从 [v3.2.1 Release](https://github.com/xinglabs/guanxing/releases/tag/v3.2.1) 下载两个同名文件：部署包和 `.sha256`。服务器访问 GitHub 慢时，在电脑下载后上传更稳。
 
 在电脑终端进入下载目录，将 `YOUR_SERVER_IP` 替换为服务器地址：
 
 ```bash
-scp guanxing-v3.2.0-linux-amd64.tar.gz guanxing-v3.2.0-linux-amd64.tar.gz.sha256 root@YOUR_SERVER_IP:/opt/
+scp guanxing-v3.2.1-linux-amd64.tar.gz guanxing-v3.2.1-linux-amd64.tar.gz.sha256 root@YOUR_SERVER_IP:/opt/
 ```
 
 ## 2. 在服务器备份并升级
@@ -26,14 +26,14 @@ cd /opt/guanxing
 
 ```bash
 cd /opt
-sha256sum -c guanxing-v3.2.0-linux-amd64.tar.gz.sha256
-tar -xzf guanxing-v3.2.0-linux-amd64.tar.gz --strip-components=1 -C /opt/guanxing
+sha256sum -c guanxing-v3.2.1-linux-amd64.tar.gz.sha256
+tar -xzf guanxing-v3.2.1-linux-amd64.tar.gz --strip-components=1 -C /opt/guanxing
 cd /opt/guanxing
 ./scripts/install-offline.sh
 ./scripts/server-status.sh
 ```
 
-最后一项应显示应用版本 `3.2.0`。安装器沿用 `.env.server` 中的域名、数据库密码、`APP_SECRET` 和已有数据卷；不要删除这个文件，不要执行 `docker compose down -v`。
+最后一项应显示应用版本 `3.2.1`。安装器沿用 `.env.server` 中的域名、数据库密码、`APP_SECRET` 和已有数据卷；不要删除这个文件，不要执行 `docker compose down -v`。
 
 ## 3. 打开网站
 
