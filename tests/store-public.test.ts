@@ -531,7 +531,12 @@ test(
           )
         ).rows[0];
         assert.ok(lock);
-        await admin.query("SELECT pg_terminate_backend($1)", [lock.pid]);
+        // Wait for backend termination, including advisory-lock cleanup.
+        const terminated = await admin.query(
+          "SELECT pg_terminate_backend($1, 5000) AS terminated",
+          [lock.pid],
+        );
+        assert.equal(terminated.rows[0].terminated, true);
         await lost;
         await release();
         const next = await store.acquireRunLock();
