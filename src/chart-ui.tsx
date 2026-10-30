@@ -105,24 +105,40 @@ export function BirthForm({
   onCreate,
   onClose,
   initial,
+  saveToAccount = false,
 }: {
-  onCreate: (i: ChartInput) => void;
+  onCreate: (i: ChartInput) => void | Promise<void>;
   onClose: () => void;
   initial: ChartInput;
+  saveToAccount?: boolean;
 }) {
   const [input, setInput] = useState(initial),
-    [error, setError] = useState("");
-  const submit = (e: FormEvent) => {
+    [error, setError] = useState(""),
+    [saving, setSaving] = useState(false);
+  const submitting = useRef(false);
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (submitting.current) return;
+    submitting.current = true;
+    setSaving(true);
+    setError("");
     try {
       createChart(input);
-      onCreate(input);
+      await onCreate(input);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      submitting.current = false;
+      setSaving(false);
     }
   };
   return (
-    <Modal title="落下你的出生时刻" onClose={onClose}>
+    <Modal
+      title="落下你的出生时刻"
+      onClose={() => {
+        if (!submitting.current) onClose();
+      }}
+    >
       <div className="form-heading">
         <span className="chapter">01 — 起盘</span>
         <h2>
@@ -209,11 +225,13 @@ export function BirthForm({
             {error}
           </p>
         )}
-        <button type="submit" className="primary">
-          展开我的命盘 <ArrowRight size={18} />
+        <button type="submit" className="primary" disabled={saving}>
+          {saving ? "正在保存星图…" : "展开我的命盘"} <ArrowRight size={18} />
         </button>
         <p className="privacy-line">
-          出生信息仅用于本机排盘，不自动上传或保存。
+          {saveToAccount
+            ? "确认排盘后，出生资料与命盘将保存到你的账号，方便下次继续解读。此步骤不会调用模型。"
+            : "出生信息仅用于本机排盘，不自动上传或保存。"}
         </p>
       </form>
     </Modal>

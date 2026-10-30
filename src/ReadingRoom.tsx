@@ -190,7 +190,7 @@ export default function ReadingRoom({
     sending.current = false;
     selectedId.current = null;
     pending.current = null;
-    restored.current = true;
+    restored.current = false;
     setSessionId(null);
     setMessages([]);
     setSessions([]);
@@ -331,6 +331,19 @@ export default function ReadingRoom({
       localController.current?.abort();
     };
   }, [mode]);
+  useEffect(() => {
+    if (
+      mode === "static" ||
+      mode === "checking" ||
+      checking ||
+      busy ||
+      loadingChart ||
+      !health
+    )
+      return;
+    if (!authenticated) setPanel("login");
+    else if (!chart && panel !== "history") setPanel("birth");
+  }, [mode, checking, busy, loadingChart, health, authenticated, chart, panel]);
   useEffect(() => {
     if (chart) setSelected(chart.mingGongBranch);
   }, [chart]);
@@ -611,10 +624,34 @@ export default function ReadingRoom({
       if (valid(version)) setBusy(false);
     }
   }
-  function newChart(value: ChartInput) {
-    selectedId.current = null;
+  async function newChart(value: ChartInput) {
+    createChart(value);
+    const version = epoch.current;
+    let created: Session | null = null;
+    if (mode !== "static") {
+      if (!authenticated) {
+        setPanel("login");
+        throw new Error("请先登录，再保存你的星图。");
+      }
+      setBusy(true);
+      try {
+        const result = await api.createSession({
+          title: `${value.name || "我的星图"} · ${value.date}`,
+          birth: value,
+        });
+        if (!valid(version)) return;
+        created = result.session;
+        setSessions((old) => [result.session, ...old]);
+      } catch (e) {
+        if (valid(version)) report(e);
+        throw e;
+      } finally {
+        if (valid(version)) setBusy(false);
+      }
+    }
+    selectedId.current = created?.id || null;
     restored.current = true;
-    setSessionId(null);
+    setSessionId(created?.id || null);
     setBirth(value);
     setLoadingChart(false);
     setIsDemo(false);
@@ -629,8 +666,21 @@ export default function ReadingRoom({
     history.replaceState(
       null,
       "",
-      location.pathname + location.search + "#reading",
+      location.pathname +
+        location.search +
+        "#reading" +
+        (created ? "/" + encodeURIComponent(created.id) : ""),
     );
+    if (created && health?.user) {
+      try {
+        sessionStorage.setItem(
+          `guanxing-reading-${health.user.id}`,
+          created.id,
+        );
+      } catch {
+        /* Storage is optional; the saved chart can still be restored from the server. */
+      }
+    }
   }
   async function logout() {
     const version = epoch.current;
@@ -775,6 +825,8 @@ export default function ReadingRoom({
     : "一张属于你的星图";
   const composerDisabled =
     busy || loadingChart || uncertain || mode === "checking";
+  const requiresEntry =
+    mode !== "static" && (checking || !authenticated || !chart || loadingChart);
 
   return (
     <div className="reader-shell">
@@ -789,388 +841,434 @@ export default function ReadingRoom({
             观星<small>GUANXING</small>
           </span>
         </button>
-        <span className="reader-header-note">一张星图，一段慢慢展开的对话</span>
-        <div className="reader-header-actions">
-          <button
-            aria-label="新的星图"
-            disabled={busy || uncertain || localRunning || loadingChart}
-            onClick={() => setPanel("birth")}
-          >
-            <Plus size={16} />
-            <span>新的星图</span>
-          </button>
-          <button onClick={() => openPersonal("history")} aria-label="我的解读">
-            <History size={17} />
-            <span>我的解读</span>
-          </button>
-          {mode !== "static" && (
+        <span className="reader-header-note">
+          {requiresEntry
+            ? "登录 · 排盘 · 解读"
+            : "一张星图，一段慢慢展开的对话"}
+        </span>
+        {!requiresEntry && (
+          <div className="reader-header-actions">
             <button
-              onClick={() => openPersonal("account")}
-              aria-label={authenticated ? "我的账号" : "登录"}
+              aria-label="新的星图"
+              disabled={busy || uncertain || localRunning || loadingChart}
+              onClick={() => setPanel("birth")}
             >
-              <UserRound size={17} />
-              <span>
-                {authenticated ? health?.user?.username || "我的" : "登录"}
-              </span>
+              <Plus size={16} />
+              <span>新的星图</span>
             </button>
-          )}
-        </div>
-      </header>
-      <nav className="reader-mobile-tabs" aria-label="命盘与对话">
-        <button
-          aria-pressed={mobileTab === "chart"}
-          onClick={() => setMobileTab("chart")}
-        >
-          我的命盘
-        </button>
-        <button
-          aria-pressed={mobileTab === "chat"}
-          onClick={() => setMobileTab("chat")}
-        >
-          对话解读 {isActive(currentJob) && <i />}
-        </button>
-      </nav>
-      <main className={`reader-layout show-${mobileTab}`}>
-        <section className="reader-chart-side" aria-label="命盘">
-          <div className="reader-chart-heading">
-            <div>
-              <h1>{sessionTitle}</h1>
-              <p>
-                {birth
-                  ? `${birth.date.replaceAll("-", " / ")} · ${hours[birth.hour].split(" · ")[0]} · ${birth.gender === "female" ? "女" : "男"}`
-                  : "记下出生的日期与时辰，展开十二宫。"}
-              </p>
-            </div>
-            {birth && (
+            <button
+              onClick={() => openPersonal("history")}
+              aria-label="我的解读"
+            >
+              <History size={17} />
+              <span>我的解读</span>
+            </button>
+            {mode !== "static" && (
               <button
-                className="reader-subtle"
-                disabled={busy || uncertain || localRunning || loadingChart}
-                onClick={() => setPanel("birth")}
+                onClick={() => openPersonal("account")}
+                aria-label={authenticated ? "我的账号" : "登录"}
               >
-                重新排盘 <ArrowUpRight size={15} />
+                <UserRound size={17} />
+                <span>
+                  {authenticated ? health?.user?.username || "我的" : "登录"}
+                </span>
               </button>
             )}
           </div>
-          {loadingChart ? (
-            <div className="reader-chart-empty">
-              <LoaderCircle className="spin" />
-              <p>正在展开这张星图…</p>
-            </div>
-          ) : chart ? (
+        )}
+      </header>
+      {requiresEntry ? (
+        <main className="reader-entry-stage" aria-label="进入观星">
+          <Mark />
+          {checking || loadingChart || mode === "checking" ? (
+            <p role="status">正在读取你的星图…</p>
+          ) : !health ? (
             <>
-              <ChartBoard
-                chart={chart}
-                selected={selected}
-                onSelect={(branch) => {
-                  setSelected(branch);
-                  setPalaceOpen(true);
-                }}
-              />
-              {palaceOpen && currentPalace ? (
-                <PalaceDetail
-                  palace={currentPalace}
-                  onDiscuss={() => {
-                    setDraft(
-                      `帮我讲讲${currentPalace.name}${currentPalace.name.endsWith("宫") ? "" : "宫"}。`,
-                    );
-                    setMobileTab("chat");
-                    composer.current?.focus();
-                  }}
-                />
-              ) : (
-                <div className="reader-chart-caption">
-                  <span>
-                    命主 {chart.mingZhu} · 身主 {chart.shenZhu}
-                  </span>
-                  <span>{chart.wuxingJuName} · 点选宫位查看星曜</span>
-                </div>
-              )}
+              <h1>暂时没有连上观星。</h1>
+              <p role="alert">{error || "请稍后重新连接。"}</p>
+              <button className="primary" onClick={() => void refresh()}>
+                重新连接
+              </button>
             </>
           ) : (
-            <div className="reader-chart-empty">
-              <div className="reader-empty-orbit">
-                <Mark />
-              </div>
-              <h2>从出生的那一刻开始。</h2>
-              <p>
-                先排出命盘，再聊你此刻关心的事。
-                <br />
-                看盘不需要登录。
-              </p>
-              <button className="primary" onClick={() => setPanel("birth")}>
-                填写出生信息 <ArrowUpRight size={18} />
-              </button>
-              <button
-                className="text-button"
-                onClick={() => {
-                  newChart(sampleInput);
-                  setIsDemo(true);
-                }}
-              >
-                先看一张示例
-              </button>
-            </div>
-          )}
-          <details className="reader-convention">
-            <summary>排盘口径与说明</summary>
-            <p>{chartConvention}</p>
             <p>
-              出生资料在浏览器中排盘。
-              {hosted
-                ? "发送问题后，当前命盘与对话会保存到你的账号，并交给本站配置的 AI 解读。"
-                : "主动解读时，问题、相关对话与命盘星曜会交给你配置的 AI 服务。"}
+              {authenticated
+                ? "先记下出生时刻，展开你的星图。"
+                : "登录后，继续你的星图与解读。"}
             </p>
-          </details>
-        </section>
-        <section className="reader-conversation" aria-label="命盘对话">
-          <header className="reader-conversation-heading">
-            <div>
-              <h2>
-                与星图对话<span>AI 解读</span>
-              </h2>
-            </div>
+          )}
+          <button className="text-button" onClick={onExit}>
+            返回封面
+          </button>
+        </main>
+      ) : (
+        <>
+          <nav className="reader-mobile-tabs" aria-label="命盘与对话">
             <button
-              className="reader-ink-icon"
-              aria-label="下载这段解读"
-              title="下载这段解读"
-              disabled={!messages.length}
-              onClick={downloadReading}
+              aria-pressed={mobileTab === "chart"}
+              onClick={() => setMobileTab("chart")}
             >
-              <Download size={18} />
+              我的命盘
             </button>
-          </header>
-          <div
-            className="reader-transcript"
-            ref={scrollArea}
-            onScroll={() => {
-              const el = scrollArea.current;
-              if (el)
-                followBottom.current =
-                  el.scrollHeight - el.scrollTop - el.clientHeight < 90;
-            }}
-          >
-            {!messages.length && !pendingText ? (
-              <div className="reader-welcome">
-                <div className="reader-conversation-star">
-                  <Mark />
-                </div>
-                <h3>
-                  从你在意的事，
-                  <br />
-                  慢慢聊起。
-                </h3>
-                <p>
-                  可以看整张命盘，也可以只聊一个问题。
-                  <br />
-                  不用懂星曜，不用选题目，想到什么就问什么。
-                </p>
-                <div className="reader-starters">
-                  {[
-                    "先帮我看看这张命盘",
-                    "我更适合怎样的工作？",
-                    "聊聊我的感情和相处方式",
-                  ].map((q) => (
-                    <button
-                      key={q}
-                      disabled={busy || uncertain}
-                      onClick={() => {
-                        setDraft(q);
-                        composer.current?.focus();
-                      }}
-                    >
-                      {q}
-                      <ArrowUpRight size={15} />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              messages.map((message) => (
-                <article
-                  className={`reader-message ${message.role}`}
-                  key={message.id}
-                >
-                  <div className="reader-message-byline">
-                    {message.role === "user" ? (
-                      "我"
-                    ) : (
-                      <>
-                        <Mark small />
-                        观星
-                      </>
-                    )}
-                  </div>
-                  <ReadingText text={message.content} />
-                </article>
-              ))
-            )}
-            {pendingText && (
-              <article className="reader-message user">
-                <div className="reader-message-byline">我</div>
-                <ReadingText text={pendingText} />
-              </article>
-            )}
-            {(isActive(currentJob) || localRunning) && (
-              <div className="reader-thinking" role="status">
-                <span>
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                {currentJob?.status === "queued"
-                  ? "正在等候解读，稍后会继续…"
-                  : "正在读你的星图…"}
-                <small>
-                  {hosted
-                    ? "离开页面也会继续，稍后可在「我的解读」查看。"
-                    : "回复会显示在这里。"}
-                </small>
-              </div>
-            )}
-            {pendingMemories.length > 0 && (
-              <button
-                className="reader-memory-note"
-                onClick={() => openPersonal("memories")}
-              >
-                <Bookmark size={15} />
-                {pendingMemories.length} 件你提到的事，等你确认后再记住{" "}
-                <ChevronRight size={15} />
-              </button>
-            )}
-          </div>
-          <div className="reader-compose-area">
-            {error && (
-              <p className="reader-error" role="alert">
-                {error}
-              </p>
-            )}
-            {notice && (
-              <p className="reader-notice" role="status">
-                {notice}
-              </p>
-            )}
-            {uncertain && (
-              <div className="reader-reconnect">
-                <p>
-                  还没确认刚才的问题是否送达。重试会沿用同一次提交，不重复扣次。
-                </p>
-                <button disabled={busy} onClick={() => void send(true)}>
-                  <RefreshCw size={14} />
-                  确认刚才的提交
-                </button>
-              </div>
-            )}
-            {pollPaused && (
-              <div className="reader-reconnect">
-                <p>暂时收不到进度，解读仍会继续。</p>
-                <button onClick={() => setPollVersion((v) => v + 1)}>
-                  <RefreshCw size={14} />
-                  重新连接
-                </button>
-              </div>
-            )}
-            {isActive(job) && job?.sessionId !== sessionId && (
-              <button
-                className="reader-other-job"
-                onClick={() => void openSession(job!.sessionId)}
-              >
-                你另一张星图的解读还在继续，去看看 <ArrowUpRight size={14} />
-              </button>
-            )}
-            {(mode === "static" || mode === "local") && (
-              <button
-                className="reader-connection-link"
-                onClick={() => setPanel("connection")}
-              >
-                {config.apiKey
-                  ? "连接设置 · 修改 API Key"
-                  : "连接设置 · 填写 API Key"}
-              </button>
-            )}
-            <form
-              className="reader-composer"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void send();
-              }}
+            <button
+              aria-pressed={mobileTab === "chat"}
+              onClick={() => setMobileTab("chat")}
             >
-              <label className="sr-only" htmlFor="reading-question">
-                想聊的问题
-              </label>
-              <textarea
-                ref={composer}
-                id="reading-question"
-                rows={2}
-                maxLength={6000}
-                placeholder={
-                  messages.length
-                    ? "继续问，或者聊聊刚才的某一点…"
-                    : "比如：从这张命盘看，我做事最大的优势是什么？"
-                }
-                value={draft}
-                disabled={composerDisabled}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "Enter" &&
-                    !e.shiftKey &&
-                    !e.nativeEvent.isComposing &&
-                    !matchMedia("(pointer: coarse)").matches
-                  ) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-              />
-              <div className="reader-composer-bottom">
-                <span>
-                  {checking
-                    ? "正在连接…"
-                    : quota !== null
-                      ? `今日还可提问 ${quota} 次`
-                      : hosted
-                        ? "登录后保存你的解读"
-                        : "本次页面内连续对话"}
-                </span>
-                {isActive(currentJob) || localRunning ? (
+              对话解读 {isActive(currentJob) && <i />}
+            </button>
+          </nav>
+          <main className={`reader-layout show-${mobileTab}`}>
+            <section className="reader-chart-side" aria-label="命盘">
+              <div className="reader-chart-heading">
+                <div>
+                  <h1>{sessionTitle}</h1>
+                  <p>
+                    {birth
+                      ? `${birth.date.replaceAll("-", " / ")} · ${hours[birth.hour].split(" · ")[0]} · ${birth.gender === "female" ? "女" : "男"}`
+                      : "记下出生的日期与时辰，展开十二宫。"}
+                  </p>
+                </div>
+                {birth && (
                   <button
-                    type="button"
-                    className="reader-stop"
-                    disabled={busy}
-                    onClick={() => void stop()}
+                    className="reader-subtle"
+                    disabled={busy || uncertain || localRunning || loadingChart}
+                    onClick={() => setPanel("birth")}
                   >
-                    <Square size={13} />
-                    停止
-                  </button>
-                ) : (
-                  <button
-                    className="reader-send"
-                    aria-label="发送问题"
-                    disabled={
-                      composerDisabled ||
-                      running ||
-                      !draft.trim() ||
-                      quota === 0
-                    }
-                  >
-                    {busy ? (
-                      <LoaderCircle className="spin" size={18} />
-                    ) : (
-                      <ArrowUp size={19} />
-                    )}
+                    重新排盘 <ArrowUpRight size={15} />
                   </button>
                 )}
               </div>
-            </form>
-            <p className="reader-footnote">AI 生成 · 传统文化解读，供参考</p>
-          </div>
-        </section>
-      </main>
+              {loadingChart ? (
+                <div className="reader-chart-empty">
+                  <LoaderCircle className="spin" />
+                  <p>正在展开这张星图…</p>
+                </div>
+              ) : chart ? (
+                <>
+                  <ChartBoard
+                    chart={chart}
+                    selected={selected}
+                    onSelect={(branch) => {
+                      setSelected(branch);
+                      setPalaceOpen(true);
+                    }}
+                  />
+                  {palaceOpen && currentPalace ? (
+                    <PalaceDetail
+                      palace={currentPalace}
+                      onDiscuss={() => {
+                        setDraft(
+                          `帮我讲讲${currentPalace.name}${currentPalace.name.endsWith("宫") ? "" : "宫"}。`,
+                        );
+                        setMobileTab("chat");
+                        composer.current?.focus();
+                      }}
+                    />
+                  ) : (
+                    <div className="reader-chart-caption">
+                      <span>
+                        命主 {chart.mingZhu} · 身主 {chart.shenZhu}
+                      </span>
+                      <span>{chart.wuxingJuName} · 点选宫位查看星曜</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="reader-chart-empty">
+                  <div className="reader-empty-orbit">
+                    <Mark />
+                  </div>
+                  <h2>从出生的那一刻开始。</h2>
+                  <p>
+                    先排出命盘，再聊你此刻关心的事。
+                    <br />
+                    看盘不需要登录。
+                  </p>
+                  <button className="primary" onClick={() => setPanel("birth")}>
+                    填写出生信息 <ArrowUpRight size={18} />
+                  </button>
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      newChart(sampleInput);
+                      setIsDemo(true);
+                    }}
+                  >
+                    先看一张示例
+                  </button>
+                </div>
+              )}
+              <details className="reader-convention">
+                <summary>排盘口径与说明</summary>
+                <p>{chartConvention}</p>
+                <p>
+                  出生资料在浏览器中排盘。
+                  {hosted
+                    ? "星盘已保存在你的账号。发送问题后，相关命盘与对话会交给本站配置的 AI 解读。"
+                    : "主动解读时，问题、相关对话与命盘星曜会交给你配置的 AI 服务。"}
+                </p>
+              </details>
+            </section>
+            <section className="reader-conversation" aria-label="命盘对话">
+              <header className="reader-conversation-heading">
+                <div>
+                  <h2>
+                    与星图对话<span>AI 解读</span>
+                  </h2>
+                </div>
+                <button
+                  className="reader-ink-icon"
+                  aria-label="下载这段解读"
+                  title="下载这段解读"
+                  disabled={!messages.length}
+                  onClick={downloadReading}
+                >
+                  <Download size={18} />
+                </button>
+              </header>
+              <div
+                className="reader-transcript"
+                ref={scrollArea}
+                onScroll={() => {
+                  const el = scrollArea.current;
+                  if (el)
+                    followBottom.current =
+                      el.scrollHeight - el.scrollTop - el.clientHeight < 90;
+                }}
+              >
+                {!messages.length && !pendingText ? (
+                  <div className="reader-welcome">
+                    <div className="reader-conversation-star">
+                      <Mark />
+                    </div>
+                    <h3>
+                      从你在意的事，
+                      <br />
+                      慢慢聊起。
+                    </h3>
+                    <p>
+                      可以看整张命盘，也可以只聊一个问题。
+                      <br />
+                      不用懂星曜，不用选题目，想到什么就问什么。
+                    </p>
+                    <div className="reader-starters">
+                      {[
+                        "先帮我看看这张命盘",
+                        "我更适合怎样的工作？",
+                        "聊聊我的感情和相处方式",
+                      ].map((q) => (
+                        <button
+                          key={q}
+                          disabled={busy || uncertain}
+                          onClick={() => {
+                            setDraft(q);
+                            composer.current?.focus();
+                          }}
+                        >
+                          {q}
+                          <ArrowUpRight size={15} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  messages.map((message) => (
+                    <article
+                      className={`reader-message ${message.role}`}
+                      key={message.id}
+                    >
+                      <div className="reader-message-byline">
+                        {message.role === "user" ? (
+                          "我"
+                        ) : (
+                          <>
+                            <Mark small />
+                            观星
+                          </>
+                        )}
+                      </div>
+                      <ReadingText text={message.content} />
+                    </article>
+                  ))
+                )}
+                {pendingText && (
+                  <article className="reader-message user">
+                    <div className="reader-message-byline">我</div>
+                    <ReadingText text={pendingText} />
+                  </article>
+                )}
+                {(isActive(currentJob) || localRunning) && (
+                  <div className="reader-thinking" role="status">
+                    <span>
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    {currentJob?.status === "queued"
+                      ? "正在等候解读，稍后会继续…"
+                      : "正在读你的星图…"}
+                    <small>
+                      {hosted
+                        ? "离开页面也会继续，稍后可在「我的解读」查看。"
+                        : "回复会显示在这里。"}
+                    </small>
+                  </div>
+                )}
+                {pendingMemories.length > 0 && (
+                  <button
+                    className="reader-memory-note"
+                    onClick={() => openPersonal("memories")}
+                  >
+                    <Bookmark size={15} />
+                    {pendingMemories.length} 件你提到的事，等你确认后再记住{" "}
+                    <ChevronRight size={15} />
+                  </button>
+                )}
+              </div>
+              <div className="reader-compose-area">
+                {error && (
+                  <p className="reader-error" role="alert">
+                    {error}
+                  </p>
+                )}
+                {notice && (
+                  <p className="reader-notice" role="status">
+                    {notice}
+                  </p>
+                )}
+                {uncertain && (
+                  <div className="reader-reconnect">
+                    <p>
+                      还没确认刚才的问题是否送达。重试会沿用同一次提交，不重复扣次。
+                    </p>
+                    <button disabled={busy} onClick={() => void send(true)}>
+                      <RefreshCw size={14} />
+                      确认刚才的提交
+                    </button>
+                  </div>
+                )}
+                {pollPaused && (
+                  <div className="reader-reconnect">
+                    <p>暂时收不到进度，解读仍会继续。</p>
+                    <button onClick={() => setPollVersion((v) => v + 1)}>
+                      <RefreshCw size={14} />
+                      重新连接
+                    </button>
+                  </div>
+                )}
+                {isActive(job) && job?.sessionId !== sessionId && (
+                  <button
+                    className="reader-other-job"
+                    onClick={() => void openSession(job!.sessionId)}
+                  >
+                    你另一张星图的解读还在继续，去看看{" "}
+                    <ArrowUpRight size={14} />
+                  </button>
+                )}
+                {(mode === "static" || mode === "local") && (
+                  <button
+                    className="reader-connection-link"
+                    onClick={() => setPanel("connection")}
+                  >
+                    {config.apiKey
+                      ? "连接设置 · 修改 API Key"
+                      : "连接设置 · 填写 API Key"}
+                  </button>
+                )}
+                <form
+                  className="reader-composer"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void send();
+                  }}
+                >
+                  <label className="sr-only" htmlFor="reading-question">
+                    想聊的问题
+                  </label>
+                  <textarea
+                    ref={composer}
+                    id="reading-question"
+                    rows={2}
+                    maxLength={6000}
+                    placeholder={
+                      messages.length
+                        ? "继续问，或者聊聊刚才的某一点…"
+                        : "比如：从这张命盘看，我做事最大的优势是什么？"
+                    }
+                    value={draft}
+                    disabled={composerDisabled}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "Enter" &&
+                        !e.shiftKey &&
+                        !e.nativeEvent.isComposing &&
+                        !matchMedia("(pointer: coarse)").matches
+                      ) {
+                        e.preventDefault();
+                        void send();
+                      }
+                    }}
+                  />
+                  <div className="reader-composer-bottom">
+                    <span>
+                      {checking
+                        ? "正在连接…"
+                        : quota !== null
+                          ? `今日还可提问 ${quota} 次`
+                          : hosted
+                            ? "登录后保存你的解读"
+                            : "本次页面内连续对话"}
+                    </span>
+                    {isActive(currentJob) || localRunning ? (
+                      <button
+                        type="button"
+                        className="reader-stop"
+                        disabled={busy}
+                        onClick={() => void stop()}
+                      >
+                        <Square size={13} />
+                        停止
+                      </button>
+                    ) : (
+                      <button
+                        className="reader-send"
+                        aria-label="发送问题"
+                        disabled={
+                          composerDisabled ||
+                          running ||
+                          !draft.trim() ||
+                          quota === 0
+                        }
+                      >
+                        {busy ? (
+                          <LoaderCircle className="spin" size={18} />
+                        ) : (
+                          <ArrowUp size={19} />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </form>
+                <p className="reader-footnote">
+                  AI 生成 · 传统文化解读，供参考
+                </p>
+              </div>
+            </section>
+          </main>
+        </>
+      )}
       {panel === "birth" && (
         <BirthForm
           initial={birth || blankBirth}
           onCreate={newChart}
-          onClose={() => setPanel(null)}
+          saveToAccount={mode !== "static"}
+          onClose={() => {
+            if (!busy) {
+              if (requiresEntry) onExit();
+              else setPanel(null);
+            }
+          }}
         />
       )}
       {panel === "connection" && (
@@ -1189,15 +1287,16 @@ export default function ReadingRoom({
         <Modal
           title={authMode === "login" ? "登录观星" : "创建账号"}
           onClose={() => {
-            if (!busy) setPanel(null);
+            if (!busy) {
+              if (requiresEntry) onExit();
+              else setPanel(null);
+            }
           }}
         >
           <div className="reader-modal-heading">
-            <span className="chapter">KEEP YOUR STORY</span>
+            <span className="chapter">登录 · 排盘 · 解读</span>
             <h2>
-              {authMode === "login"
-                ? "把这段对话，留下来。"
-                : "留一处自己的星空。"}
+              {authMode === "login" ? "回到你的星空。" : "留一处自己的星空。"}
             </h2>
             <p>
               {health?.needsSetup
@@ -1279,7 +1378,7 @@ export default function ReadingRoom({
                 {busy
                   ? "请稍候…"
                   : authMode === "login"
-                    ? "登录，继续聊"
+                    ? "登录并继续"
                     : "创建账号"}
                 <ArrowUpRight size={17} />
               </button>

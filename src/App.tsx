@@ -316,6 +316,10 @@ export default function App() {
     setSeed((v) => v + 1);
     navigate("reading");
   }
+  function startReading() {
+    if (mode === "static") setModal("birth");
+    else begin();
+  }
   async function toggleFull() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
@@ -371,7 +375,7 @@ export default function App() {
           <button className="active" onClick={() => navigate("home")}>
             观星
           </button>
-          <button onClick={() => setModal("birth")}>排一张命盘</button>
+          <button onClick={startReading}>排一张命盘</button>
           <button onClick={() => begin()}>我的解读</button>
           <button onClick={() => setModal("about")}>关于</button>
         </nav>
@@ -411,20 +415,24 @@ export default function App() {
             从此刻在意的事聊起。
           </p>
           <div className="hero-actions">
-            <button
-              className="primary hero-cta"
-              onClick={() => setModal("birth")}
-            >
+            <button className="primary hero-cta" onClick={startReading}>
               展开我的星图 <ArrowUpRight size={22} />
             </button>
             <button
               className="sample-button"
-              onClick={() => begin(sampleInput, true)}
+              onClick={() =>
+                mode === "static" ? begin(sampleInput, true) : begin()
+              }
             >
-              先看一张示例 <span>→</span>
+              {mode === "static" ? "先看一张示例" : "继续我的解读"}{" "}
+              <span>→</span>
             </button>
           </div>
-          <div className="hero-footnote">本机排盘，无需登录</div>
+          <div className="hero-footnote">
+            {mode === "static"
+              ? "本机排盘，无需登录"
+              : "登录后，开启属于你的星图与解读"}
+          </div>
         </div>
         <Astrolabe paused={paused} />
         <div className="scene-coordinate">
@@ -484,7 +492,7 @@ export default function App() {
             <p>{chartConvention}</p>
             <h3>你的信息留在哪里</h3>
             <p>
-              出生资料先在浏览器中用于排盘。服务器版在你主动发送问题后，将命盘、对话和你确认的事保存在自己的账号中；解读时，相关上下文会交给网站配置的
+              出生资料先在浏览器中用于排盘。服务器版在你确认排盘后保存命盘，后续对话和你确认的事也保存在自己的账号中；解读时，相关上下文会交给网站配置的
               AI 服务。静态演示版的对话与连接密钥只保留在当前页面。
             </p>
             <h3>把答案，带回生活</h3>

@@ -19,6 +19,26 @@
     linear-gradient(90deg, rgba(8, 14, 19, 0.52), rgba(8, 14, 19, 0.72)),
     url("/assets/night-landscape.jpg") center / cover no-repeat;
 }
+.reader-entry-stage {
+  min-height: calc(100svh - 88px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 40px 24px;
+  text-align: center;
+}
+.reader-entry-stage h1 {
+  font-family: var(--serif);
+  font-size: clamp(24px, 4vw, 38px);
+  font-weight: 400;
+  color: var(--scene-heading);
+}
+.reader-entry-stage p {
+  color: var(--scene-muted);
+  line-height: 1.8;
+}
 .reader-header {
   position: sticky;
   top: 0;
