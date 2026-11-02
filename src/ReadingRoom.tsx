@@ -21,6 +21,7 @@ import {
 import { createChart, sampleInput, chartConvention } from "./lib/chart";
 import type { ChartInput } from "./lib/chart";
 import { readChart } from "./lib/ai";
+import { readingDate, withFortuneYears } from "./lib/fortune";
 import type { AIConfig } from "./lib/ai";
 import {
   BirthForm,
@@ -132,6 +133,9 @@ export default function ReadingRoom({
   const [memories, setMemories] = useState<Memory[]>([]);
   const [job, setJob] = useState<AgentJob | null>(null);
   const [draft, setDraft] = useState("");
+  const [yearMode, setYearMode] = useState(false);
+  const [yearStart, setYearStart] = useState(() => readingDate().slice(0, 4));
+  const [yearCount, setYearCount] = useState(1);
   const [pendingText, setPendingText] = useState("");
   const [busy, setBusy] = useState(false);
   const [loadingChart, setLoadingChart] = useState(false);
@@ -197,6 +201,7 @@ export default function ReadingRoom({
     setJob(null);
     setPendingText("");
     setDraft("");
+    setYearMode(false);
     setBirth(null);
     setIsDemo(false);
     setUncertain(false);
@@ -231,6 +236,7 @@ export default function ReadingRoom({
     if (latest && isActive(latest)) setJob(latest);
   }
   async function openSession(id: string) {
+    setYearMode(false);
     const version = epoch.current;
     selectedId.current = id;
     setSessionId(id);
@@ -463,8 +469,17 @@ export default function ReadingRoom({
   }
   async function send(retry = false) {
     if (sending.current || running || loadingChart) return;
-    const content = retry ? pending.current?.content : draft.trim();
+    const originalDraft = draft.trim();
+    let content = retry ? pending.current?.content : originalDraft;
     if (!content) return;
+    if (!retry && yearMode) {
+      try {
+        content = withFortuneYears(content, Number(yearStart), yearCount);
+      } catch (error) {
+        setError((error as Error).message);
+        return;
+      }
+    }
     if (!birth) {
       setPanel("birth");
       return;
@@ -602,7 +617,7 @@ export default function ReadingRoom({
           setUncertain(true);
         else pending.current = null;
         report(e);
-        if (!hosted) setDraft(content);
+        if (!hosted) setDraft(originalDraft);
       }
     } finally {
       if (valid(version)) {
@@ -635,6 +650,7 @@ export default function ReadingRoom({
   }
   async function newChart(value: ChartInput) {
     createChart(value);
+    setYearMode(false);
     const version = epoch.current;
     let created: Session | null = null;
     if (mode !== "static") {
@@ -1017,8 +1033,8 @@ export default function ReadingRoom({
                 <p>
                   出生资料在浏览器中排盘。
                   {hosted
-                    ? "星盘已保存在你的账号。发送问题后，相关命盘与对话会交给本站配置的 AI 解读。"
-                    : "主动解读时，问题、相关对话与命盘星曜会交给你配置的 AI 服务。"}
+                    ? "星盘已保存在你的账号。发送问题后，命盘、推算年龄与运限及相关对话会交给本站配置的 AI 解读。"
+                    : "主动解读时，命盘、推算年龄与运限及相关对话会交给你配置的 AI 服务。"}
                 </p>
               </details>
             </section>
@@ -1195,6 +1211,73 @@ export default function ReadingRoom({
                     void send();
                   }}
                 >
+                  {chart && (
+                    <div className="reader-year-controls">
+                      <div className="reader-year-modes" aria-label="解读范围">
+                        <button
+                          type="button"
+                          aria-pressed={!yearMode}
+                          disabled={composerDisabled || running}
+                          onClick={() => setYearMode(false)}
+                        >
+                          自由解读
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={yearMode}
+                          disabled={composerDisabled || running}
+                          onClick={() => {
+                            setYearMode(true);
+                            if (!draft.trim())
+                              setDraft(
+                                "结合我的本命盘和大限，看看这些年份的整体变化。",
+                              );
+                          }}
+                        >
+                          看流年 <ArrowUpRight size={13} />
+                        </button>
+                      </div>
+                      {yearMode && (
+                        <div className="reader-year-fields">
+                          <label>
+                            起始年份
+                            <input
+                              type="number"
+                              aria-label="流年起始年份"
+                              min="1900"
+                              max={2101 - yearCount}
+                              step="1"
+                              required
+                              value={yearStart}
+                              disabled={composerDisabled || running}
+                              onChange={(event) =>
+                                setYearStart(event.target.value)
+                              }
+                            />
+                          </label>
+                          <label>
+                            查看范围
+                            <select
+                              aria-label="流年查看范围"
+                              value={yearCount}
+                              disabled={composerDisabled || running}
+                              onChange={(event) =>
+                                setYearCount(Number(event.target.value))
+                              }
+                            >
+                              <option value={1}>单年</option>
+                              <option value={3}>连续 3 年</option>
+                              <option value={5}>连续 5 年</option>
+                            </select>
+                          </label>
+                          <p>
+                            可选 1900—2100
+                            年；每年按农历新年起算。写下你关心的事，再发送。
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <label className="sr-only" htmlFor="reading-question">
                     想聊的问题
                   </label>
@@ -1202,7 +1285,7 @@ export default function ReadingRoom({
                     ref={composer}
                     id="reading-question"
                     rows={2}
-                    maxLength={6000}
+                    maxLength={yearMode ? 5900 : 6000}
                     placeholder={
                       messages.length
                         ? "继续问，或者聊聊刚才的某一点…"

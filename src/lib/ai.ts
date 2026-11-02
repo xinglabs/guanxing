@@ -1,6 +1,7 @@
 import { branches } from "./chart";
 import type { ZiweiChart } from "./chart";
 import { READING_STYLE, READING_BOUNDARIES } from "./reading-style";
+import { fortuneContext, questionYears } from "./fortune";
 
 export interface AIConfig {
   /** OpenAI-compatible API base, normally ending in /v1. */
@@ -12,7 +13,7 @@ export interface AIConfig {
 }
 
 export const aiPrivacyNote =
-  "点击解读后，十二宫星曜、问题及最近对话会直接发送给你选择的模型服务。不会自动附带称呼或完整出生日期；密钥只保留在当前页面内存中，刷新即清除。问题中请勿填写不必要的个人信息。";
+  "点击解读后，十二宫星曜、排盘性别、五行局、推算虚岁及大限流年、问题和最近对话会发送给你选择的模型服务。不会自动附带称呼或完整出生日期；密钥只保留在当前页面内存中，刷新即清除。问题中请勿填写不必要的个人信息。";
 
 class SafeServiceError extends Error {}
 
@@ -42,9 +43,19 @@ export function resolveEndpoint(baseUrl: string): string {
   return url.toString();
 }
 
-/** Explicit allowlist prevents sending birthInfo, lunar dates, name, or age. */
-export function chartForAI(chart: ZiweiChart) {
+/** Allow derived timing data while excluding names and complete birth dates. */
+export function chartForAI(
+  chart: ZiweiChart,
+  years?: unknown,
+  now = new Date(),
+) {
   return {
+    gender: chart.birthInfo.gender,
+    yinYangGender: chart.yinYangGender,
+    fiveElementsClass: chart.wuxingJuName,
+    lifePalace: branches[chart.mingGongBranch],
+    bodyPalace: branches[chart.shenGongBranch],
+    timing: fortuneContext(chart, years, now),
     palaces: chart.palaces.map((palace) => ({
       palace: palace.name,
       branch: branches[palace.branch],
@@ -110,7 +121,9 @@ export async function readChart(
             ? [
                 {
                   role: "user",
-                  content: JSON.stringify({ chart: chartForAI(chart) }),
+                  content: JSON.stringify({
+                    chart: chartForAI(chart, questionYears(prompt)),
+                  }),
                 },
                 ...history.slice(-12).map((message) => ({
                   role: message.role,
@@ -121,7 +134,9 @@ export async function readChart(
           {
             role: "user",
             content: JSON.stringify({
-              ...(history.length ? {} : { chart: chartForAI(chart) }),
+              ...(history.length
+                ? {}
+                : { chart: chartForAI(chart, questionYears(prompt)) }),
               question: prompt,
             }),
           },

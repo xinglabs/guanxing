@@ -39,14 +39,18 @@ test("endpoint requires HTTPS except for explicit loopback development", () => {
     assert.throws(() => resolveEndpoint(url));
 });
 
-test("AI data allowlist omits name, birthday, age and unrelated chart fields", () => {
+test("AI data includes computed timing but omits name and raw birth input", () => {
   const data = chartForAI(chart);
   assert.equal(data.palaces.length, 12);
-  assert.deepEqual(Object.keys(data), ["palaces"]);
+  assert.equal(data.fiveElementsClass, chart.wuxingJuName);
+  assert.equal(data.gender, sampleInput.gender);
+  assert.equal(data.timing.decadalSchedule.length, 12);
+  assert.equal(data.timing.annualPeriods.length, 3);
+  assert.ok(data.timing.current?.nominalAge);
   const serialized = JSON.stringify(data);
   for (const value of [
     "PRIVATE_NAME_123",
-    "1995",
+    sampleInput.date,
     "birthInfo",
     "lunarInfo",
     "currentAge",

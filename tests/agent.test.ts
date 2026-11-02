@@ -190,7 +190,7 @@ test("agent executes chart and pending memory tools, resumes model, reconciles e
                 content: null,
                 reasoning_content: "private transient reasoning",
                 tool_calls: [
-                  call("get_chart"),
+                  call("get_chart", { years: [2030, 2031, 2032, 2033, 2034] }),
                   call(
                     "propose_memory",
                     { content: "用户偏好简短回答" },
@@ -224,10 +224,73 @@ test("agent executes chart and pending memory tools, resumes model, reconciles e
     (m: any) => m.role === "tool" && m.tool_call_id === "call1",
   );
   assert.equal(JSON.parse(tool.content).palaces.length, 12);
+  assert.deepEqual(
+    JSON.parse(tool.content).timing.annualPeriods.map(
+      (period: { year: number }) => period.year,
+    ),
+    [2030, 2031, 2032, 2033, 2034],
+  );
+  assert.equal(JSON.parse(tool.content).fiveElementsClass, "金四局");
   assert.ok(!JSON.stringify(s).includes("fake-test-key"));
   assert.ok(!JSON.stringify(s).includes("private transient reasoning"));
   assert.ok(!tool.content.includes(sampleInput.date));
 });
+test("chart tool rejects oversized year queries and lets the model recover", async () => {
+  const s = new FakeStore();
+  let calls = 0;
+  await runAgent({
+    ...args(s),
+    fetcher: async (_url, init) => {
+      if (++calls === 1)
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  tool_calls: [
+                    call("get_chart", {
+                      years: [2020, 2021, 2022, 2023, 2024, 2025],
+                    }),
+                  ],
+                },
+              },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 20 },
+          }),
+        );
+      const body = JSON.parse(String(init?.body));
+      const result = body.messages.find(
+        (message: { role: string }) => message.role === "tool",
+      );
+      assert.match(result.content, /1—5/);
+      assert.ok(!result.content.includes(sampleInput.date));
+      return answer();
+    },
+  });
+  assert.equal(calls, 2);
+});
+test("initial model request already has requested timing even without a tool call", async () => {
+  const s = new FakeStore();
+  await runAgent({
+    ...args(s),
+    content:
+      "查看流年：2030年、2031年、2032年、2033年、2034年。\n只聊工作变化。",
+    fetcher: async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      const data = JSON.parse(body.messages[1].content).attachedChart;
+      assert.equal(data.fiveElementsClass, "金四局");
+      assert.equal(data.gender, "female");
+      assert.deepEqual(
+        data.timing.annualPeriods.map((p: { year: number }) => p.year),
+        [2030, 2031, 2032, 2033, 2034],
+      );
+      assert.ok(!String(init?.body).includes(sampleInput.date));
+      return answer("已结合大限和所选年份分析。");
+    },
+  });
+  assert.equal(s.runs[0].steps, 1);
+});
+
 test("confirmed memory crosses conversations while unconfirmed proposals stay out of model context", async () => {
   const s = new FakeStore();
   await s.addMemory({ content: "用户喜欢简洁语言", status: "active" });

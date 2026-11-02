@@ -569,6 +569,68 @@
   border-color: var(--gold);
   box-shadow: none;
 }
+.reader-year-controls {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--reader-line);
+}
+.reader-year-modes {
+  display: flex;
+  gap: 18px;
+}
+.reader-year-modes button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--scene-muted);
+  font-size: 12px;
+  border-bottom: 1px solid transparent;
+}
+.reader-year-modes button[aria-pressed="true"] {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+.reader-year-modes button:focus-visible,
+.reader-year-fields input:focus-visible,
+.reader-year-fields select:focus-visible {
+  outline: 1px solid var(--gold);
+  outline-offset: 3px;
+}
+.reader-year-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px 14px;
+  margin-top: 12px;
+}
+.reader-year-fields label {
+  display: grid;
+  gap: 5px;
+  color: var(--scene-muted);
+  font-size: 10px;
+}
+.reader-year-fields input,
+.reader-year-fields select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--scene-control);
+  border-radius: 0;
+  padding: 7px 9px;
+  background: var(--scene-ground);
+  color: var(--scene-text);
+  font: inherit;
+  font-size: 13px;
+  color-scheme: dark;
+}
+.reader-year-fields p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--scene-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
 .reader-composer textarea {
   width: 100%;
   background: transparent;
