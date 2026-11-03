@@ -35,7 +35,7 @@ GitHub Pages 发布的是静态页面，不能承载 API 或数据库。Docker �
 
 完整的阿里云 Linux 3 操作步骤、初始化令牌、域名、更新、备份及国内镜像下载失败的处理，见 [服务器部署指南](docs/server-deployment.md)。
 
-已有网站按 [v3.3 升级说明](docs/upgrading-v3.1.md) 更新，沿用域名、账号、记忆和模型配置。
+已有网站按 [v3.4 升级说明](docs/upgrading-v3.1.md) 更新，沿用域名、账号、记忆和模型配置。
 
 ## 启动本地完整版本
 
@@ -122,3 +122,5 @@ Agent 的循环和职责划分参考 [DeepSeek 官方 Harness](https://github.co
 ## License
 
 新编写代码采用 [MIT License](LICENSE)。上游文件、字体与依赖保留各自的版权和授权，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+运限与引擎查询能力见 [接入清单](docs/engine-capabilities.md)。

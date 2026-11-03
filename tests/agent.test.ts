@@ -497,3 +497,156 @@ test("cancellation at response arrival retains actual usage without saving an an
   assert.equal(s.usage[0].totalTokens, 150);
   assert.equal(s.usage[0].usageSource, "provider");
 });
+
+test("engine tools execute on demand and every model continuation is metered", async () => {
+  const s = new FakeStore();
+  let count = 0;
+  const result = await runAgent({
+    ...args(s),
+    content: "比较时间段，再核对命宫结构。",
+    fetcher: async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      if (++count === 1) {
+        for (const name of [
+          "get_horoscope",
+          "get_chart_variant",
+          "list_fortune_periods",
+          "inspect_chart",
+          "convert_calendar",
+        ])
+          assert.ok(body.tools.some((t: any) => t.function.name === name));
+        const data = JSON.parse(body.messages[1].content).attachedChart;
+        assert.equal(data.timing.annualPeriods.length, 0);
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  tool_calls: [
+                    call(
+                      "get_horoscope",
+                      { dates: ["2026-11-03"], scopes: ["monthly", "daily"] },
+                      "date",
+                    ),
+                    call(
+                      "list_fortune_periods",
+                      { kind: "months", year: 2025 },
+                      "months",
+                    ),
+                    call(
+                      "inspect_chart",
+                      { palace: "命宫", view: "relationships" },
+                      "palace",
+                    ),
+                    call(
+                      "convert_calendar",
+                      {
+                        calendar: "lunar",
+                        date: "2025-06-16",
+                        isLeapMonth: true,
+                      },
+                      "calendar",
+                    ),
+                  ],
+                },
+              },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 60 },
+          }),
+        );
+      }
+      if (count === 2)
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  tool_calls: [
+                    call(
+                      "get_chart_variant",
+                      { astroType: "earth" },
+                      "variant",
+                    ),
+                  ],
+                },
+              },
+            ],
+            usage: { prompt_tokens: 200, completion_tokens: 30 },
+          }),
+        );
+      const results = Object.fromEntries(
+        body.messages
+          .filter((m: any) => m.role === "tool")
+          .map((m: any) => [m.tool_call_id, JSON.parse(m.content)]),
+      );
+      assert.equal(results.date.periods[0].layers.length, 2);
+      assert.equal(results.months.periods.length, 14);
+      assert.equal(results.palace.surrounded.length, 4);
+      assert.equal(results.calendar.solar, "2025-08-09");
+      assert.equal(results.variant.palaces.length, 12);
+      assert.ok(!String(init?.body).includes(sampleInput.date));
+      return answer("已按查询日期和命宫结构说明。");
+    },
+  });
+  assert.equal(result.events.length, 5);
+  assert.ok(result.events.every((e) => e.status === "ok"));
+  assert.equal(s.usage.length, 3);
+  assert.ok(s.usage.every((u) => u.status === "completed"));
+});
+
+test("invalid engine arguments produce a recoverable bounded error rather than fabricated data", async () => {
+  const s = new FakeStore();
+  let count = 0;
+  await runAgent({
+    ...args(s),
+    fetcher: async (_url, init) => {
+      if (++count === 1)
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  tool_calls: [
+                    call("get_horoscope", {
+                      dates: ["2026-02-30"],
+                      scopes: ["daily"],
+                    }),
+                  ],
+                },
+              },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 20 },
+          }),
+        );
+      const body = JSON.parse(String(init?.body));
+      const data = JSON.parse(
+        body.messages.find((m: any) => m.role === "tool").content,
+      );
+      assert.match(data.error, /真实存在/);
+      assert.ok(!data.error.includes(sampleInput.date));
+      return answer();
+    },
+  });
+  assert.equal(s.runs[0].events?.[0].status, "error");
+});
+
+test("a selected daily period reaches the first model request even if it never calls tools", async () => {
+  const s = new FakeStore();
+  await runAgent({
+    ...args(s),
+    content: "查看流日：2026-11-03。\n今天工作上的变化。",
+    fetcher: async (_url, init) => {
+      const data = JSON.parse(
+        JSON.parse(String(init?.body)).messages[1].content,
+      ).attachedChart;
+      assert.equal(data.timing.annualPeriods.length, 0);
+      assert.deepEqual(
+        data.requestedData[0].data.periods[0].layers.map((l: any) => l.scope),
+        ["yearly", "monthly", "daily"],
+      );
+      assert.equal(data.requestedData[0].data.periods[0].date, "2026-11-03");
+      return answer();
+    },
+  });
+  assert.equal(s.runs[0].steps, 1);
+});

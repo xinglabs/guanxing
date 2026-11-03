@@ -230,7 +230,7 @@ export function createPublicApiServer(options: PublicServerOptions) {
           const settings = await store.getSiteSettings();
           return reply(res, 200, {
             ok: true,
-            version: "3.3.0",
+            version: "3.4.0",
             mode: "public",
             needsSetup: !(await store.hasOwner()),
             authenticated: Boolean(user),

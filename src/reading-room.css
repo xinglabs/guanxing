@@ -1269,3 +1269,7 @@
     animation: none !important;
   }
 }
+
+.reader-time-choice {
+  grid-column: 1 / -1;
+}

@@ -27,11 +27,33 @@ export function validateFortuneYears(years: unknown): number[] {
   return [...new Set(years as number[])];
 }
 
-function lunarYearStart(year: number): string {
+export function lunarYearStart(year: number): string {
   const solar = Lunar.fromYmd(year, 1, 1).getSolar();
   return [solar.getYear(), solar.getMonth(), solar.getDay()]
     .map((part, index) => String(part).padStart(index ? 2 : 4, "0"))
     .join("-");
+}
+
+/** Rebuild the engine using the same fixed conventions as the displayed chart. */
+export function timingEngine(chart: ZiweiChart) {
+  const birth = chart.birthInfo;
+  const birthDate = `${birth.year}-${String(birth.month).padStart(2, "0")}-${String(birth.day).padStart(2, "0")}`;
+  astro.config({
+    yearDivide: "normal",
+    horoscopeDivide: "normal",
+    ageDivide: "normal",
+    dayDivide: "forward",
+  });
+  return {
+    birthDate,
+    raw: astro.bySolar(
+      birthDate,
+      birth.hour,
+      birth.gender === "male" ? "男" : "女",
+      true,
+      "zh-CN",
+    ),
+  };
 }
 
 /** Static mode has no tool loop; include explicit years and common relative years. */
@@ -72,13 +94,15 @@ export function fortuneContext(
   chart: ZiweiChart,
   requestedYears?: unknown,
   now = new Date(),
+  includeAnnual = true,
 ) {
   const referenceDate = readingDate(now);
   const currentYear = Number(referenceDate.slice(0, 4));
   const [y, m, d] = referenceDate.split("-").map(Number);
   const currentLunarYear = Solar.fromYmd(y, m, d).getLunar().getYear();
-  const years =
-    requestedYears === undefined
+  const years = !includeAnnual
+    ? []
+    : requestedYears === undefined
       ? [
           ...new Set([
             currentLunarYear,
@@ -88,21 +112,7 @@ export function fortuneContext(
           ]),
         ].filter((year) => year >= 1900 && year <= 2100)
       : validateFortuneYears(requestedYears);
-  const birth = chart.birthInfo;
-  const birthDate = `${birth.year}-${String(birth.month).padStart(2, "0")}-${String(birth.day).padStart(2, "0")}`;
-  // Match the app's fixed split-leap-month natal chart and lunar-new-year boundaries.
-  astro.config({
-    yearDivide: "normal",
-    horoscopeDivide: "normal",
-    ageDivide: "normal",
-  });
-  const raw = astro.bySolar(
-    birthDate,
-    birth.hour,
-    birth.gender === "male" ? "男" : "女",
-    true,
-    "zh-CN",
-  );
+  const { raw, birthDate } = timingEngine(chart);
   const periodAt = (date: string) => {
     if (date < birthDate) return null;
     const horoscope = raw.horoscope(date, 0);
@@ -132,7 +142,7 @@ export function fortuneContext(
     currentLunarYear,
     timezone: "Asia/Shanghai",
     convention:
-      "虚岁及流年以农历正月初一换年；闰月分半。大限沿用本命引擎的年龄段与宫位迁移，不另加大限飞化。流年四化与流曜为 iztro 独立时间层，不改写本命星曜和本命四化。未提供流月、流日。",
+      "虚岁及流年以农历正月初一换年；闰月分半。大限默认沿用本命年龄段与宫位迁移。小限、流月、流日、流时及扩展四化可以按需查询，未附带不代表不支持；时间层与本命层分开，不改写本命星曜和四化。",
     current: periodAt(referenceDate),
     decadalSchedule: chart.daXians.map((period) => ({
       startAge: period.startAge,

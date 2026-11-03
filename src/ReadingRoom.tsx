@@ -22,6 +22,8 @@ import { createChart, sampleInput, chartConvention } from "./lib/chart";
 import type { ChartInput } from "./lib/chart";
 import { readChart } from "./lib/ai";
 import { readingDate, withFortuneYears } from "./lib/fortune";
+import { readingClock, withFortuneDate } from "./lib/reading-query";
+import { timeLabels } from "./lib/engine-query";
 import type { AIConfig } from "./lib/ai";
 import {
   BirthForm,
@@ -133,7 +135,14 @@ export default function ReadingRoom({
   const [memories, setMemories] = useState<Memory[]>([]);
   const [job, setJob] = useState<AgentJob | null>(null);
   const [draft, setDraft] = useState("");
-  const [yearMode, setYearMode] = useState(false);
+  const [periodMode, setPeriodMode] = useState<"free" | "year" | "date">(
+    "free",
+  );
+  const yearMode = periodMode === "year";
+  const dateMode = periodMode === "date";
+  const [queryDay, setQueryDay] = useState(() => readingDate());
+  const [queryScope, setQueryScope] = useState("daily");
+  const [queryHour, setQueryHour] = useState(() => readingClock().timeIndex);
   const [yearStart, setYearStart] = useState(() => readingDate().slice(0, 4));
   const [yearCount, setYearCount] = useState(1);
   const [pendingText, setPendingText] = useState("");
@@ -201,7 +210,7 @@ export default function ReadingRoom({
     setJob(null);
     setPendingText("");
     setDraft("");
-    setYearMode(false);
+    setPeriodMode("free");
     setBirth(null);
     setIsDemo(false);
     setUncertain(false);
@@ -236,7 +245,7 @@ export default function ReadingRoom({
     if (latest && isActive(latest)) setJob(latest);
   }
   async function openSession(id: string) {
-    setYearMode(false);
+    setPeriodMode("free");
     const version = epoch.current;
     selectedId.current = id;
     setSessionId(id);
@@ -472,9 +481,11 @@ export default function ReadingRoom({
     const originalDraft = draft.trim();
     let content = retry ? pending.current?.content : originalDraft;
     if (!content) return;
-    if (!retry && yearMode) {
+    if (!retry && periodMode !== "free") {
       try {
-        content = withFortuneYears(content, Number(yearStart), yearCount);
+        content = yearMode
+          ? withFortuneYears(content, Number(yearStart), yearCount)
+          : withFortuneDate(content, queryScope, queryDay, queryHour);
       } catch (error) {
         setError((error as Error).message);
         return;
@@ -650,7 +661,7 @@ export default function ReadingRoom({
   }
   async function newChart(value: ChartInput) {
     createChart(value);
-    setYearMode(false);
+    setPeriodMode("free");
     const version = epoch.current;
     let created: Session | null = null;
     if (mode !== "static") {
@@ -1033,8 +1044,8 @@ export default function ReadingRoom({
                 <p>
                   出生资料在浏览器中排盘。
                   {hosted
-                    ? "星盘已保存在你的账号。发送问题后，命盘、推算年龄与运限及相关对话会交给本站配置的 AI 解读。"
-                    : "主动解读时，命盘、推算年龄与运限及相关对话会交给你配置的 AI 服务。"}
+                    ? "星盘已保存在你的账号。发送问题后，命盘、推算年龄、按需运限与四柱及相关对话会交给本站配置的 AI 解读。"
+                    : "主动解读时，命盘、推算年龄、按需运限与四柱及相关对话会交给你配置的 AI 服务。"}
                 </p>
               </details>
             </section>
@@ -1216,9 +1227,9 @@ export default function ReadingRoom({
                       <div className="reader-year-modes" aria-label="解读范围">
                         <button
                           type="button"
-                          aria-pressed={!yearMode}
+                          aria-pressed={periodMode === "free"}
                           disabled={composerDisabled || running}
-                          onClick={() => setYearMode(false)}
+                          onClick={() => setPeriodMode("free")}
                         >
                           自由解读
                         </button>
@@ -1227,7 +1238,7 @@ export default function ReadingRoom({
                           aria-pressed={yearMode}
                           disabled={composerDisabled || running}
                           onClick={() => {
-                            setYearMode(true);
+                            setPeriodMode("year");
                             if (!draft.trim())
                               setDraft(
                                 "结合我的本命盘和大限，看看这些年份的整体变化。",
@@ -1236,7 +1247,78 @@ export default function ReadingRoom({
                         >
                           看流年 <ArrowUpRight size={13} />
                         </button>
+                        <button
+                          type="button"
+                          aria-pressed={dateMode}
+                          disabled={composerDisabled || running}
+                          onClick={() => {
+                            setPeriodMode("date");
+                            if (!draft.trim())
+                              setDraft(
+                                "结合我的命盘，看看这个时间段有什么值得留意的变化。",
+                              );
+                          }}
+                        >
+                          看月日时 <ArrowUpRight size={13} />
+                        </button>
                       </div>
+                      {dateMode && (
+                        <div className="reader-year-fields">
+                          <label>
+                            查询日期
+                            <input
+                              type="date"
+                              aria-label="运限查询日期"
+                              required
+                              min="1900-01-01"
+                              max="2100-12-31"
+                              value={queryDay}
+                              disabled={composerDisabled || running}
+                              onChange={(event) =>
+                                setQueryDay(event.target.value)
+                              }
+                            />
+                          </label>
+                          <label>
+                            解读范围
+                            <select
+                              aria-label="运限解读范围"
+                              value={queryScope}
+                              disabled={composerDisabled || running}
+                              onChange={(event) =>
+                                setQueryScope(event.target.value)
+                              }
+                            >
+                              <option value="monthly">所在农历月 · 流月</option>
+                              <option value="daily">这一天 · 流日</option>
+                              <option value="hourly">指定时辰 · 流时</option>
+                            </select>
+                          </label>
+                          {queryScope === "hourly" && (
+                            <label className="reader-time-choice">
+                              查询时辰
+                              <select
+                                aria-label="流时时辰"
+                                value={queryHour}
+                                disabled={composerDisabled || running}
+                                onChange={(event) =>
+                                  setQueryHour(Number(event.target.value))
+                                }
+                              >
+                                {timeLabels.map((label, index) => (
+                                  <option key={label} value={index}>
+                                    {label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
+                          <p>
+                            日期使用公历；流月对应所在农历月，闰月分半。23
+                            点按次日子时解读，也可以直接在对话里问「下个月」或「明天」。
+                          </p>
+                        </div>
+                      )}
                       {yearMode && (
                         <div className="reader-year-fields">
                           <label>
@@ -1285,7 +1367,7 @@ export default function ReadingRoom({
                     ref={composer}
                     id="reading-question"
                     rows={2}
-                    maxLength={yearMode ? 5900 : 6000}
+                    maxLength={periodMode !== "free" ? 5900 : 6000}
                     placeholder={
                       messages.length
                         ? "继续问，或者聊聊刚才的某一点…"

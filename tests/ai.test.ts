@@ -239,3 +239,35 @@ test("follow-up preserves the user's exact question and prior dialogue without r
     "这里说的是经验和技能逐步叠加。",
   );
 });
+
+test("static reading includes the selected subannual data without requiring tool support", async (t) => {
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (_url: unknown, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      const data = JSON.parse(body.messages[1].content).chart;
+      assert.equal(data.timing.annualPeriods.length, 0);
+      assert.equal(
+        data.requestedData[0].data.periods[0].layers.at(-1).scope,
+        "daily",
+      );
+      assert.equal(data.requestedData[0].data.periods[0].date, "2026-11-03");
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "这一天的解读。" } }],
+        }),
+      );
+    },
+  );
+  const response = await readChart(
+    createChart(sampleInput),
+    {
+      baseUrl: "https://api.deepseek.com/v1",
+      apiKey: "test-key",
+      model: "test",
+    },
+    "查看流日：2026-11-03。\n工作方面。",
+  );
+  assert.equal(response, "这一天的解读。");
+});
