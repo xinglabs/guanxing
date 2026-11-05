@@ -1,16 +1,12 @@
 import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import { ArrowUpRight, Pause, Play, Maximize2, Minimize2 } from "lucide-react";
-import {
-  createChart,
-  sampleInput,
-  branches,
-  chartConvention,
-} from "./lib/chart";
+import { createChart, branches, chartConvention } from "./lib/chart";
 import type { ChartInput } from "./lib/chart";
 import type { AIConfig } from "./lib/ai";
 import type { SiteMode } from "./ReadingRoom";
 import { BirthForm, Mark, Modal } from "./chart-ui";
 import CelestialAtmosphere from "./CelestialAtmosphere";
+const TarotRoom = lazy(() => import("./TarotRoom"));
 const Workspace = lazy(() => import("./Workspace"));
 const ReadingRoom = lazy(() => import("./ReadingRoom"));
 function Sky({ paused }: { paused: boolean }) {
@@ -189,12 +185,16 @@ function Astrolabe({ paused }: { paused: boolean }) {
 }
 export default function App() {
   const route = () =>
-    location.hash.startsWith("#admin")
-      ? "admin"
-      : location.hash.startsWith("#reading") || location.hash === "#agent"
-        ? "reading"
-        : "home";
-  const [view, setView] = useState<"home" | "reading" | "admin">(route);
+    location.hash.startsWith("#tarot")
+      ? "tarot"
+      : location.hash.startsWith("#admin")
+        ? "admin"
+        : location.hash.startsWith("#reading") || location.hash === "#agent"
+          ? "reading"
+          : "home";
+  const [view, setView] = useState<"home" | "reading" | "admin" | "tarot">(
+    route,
+  );
   const [mode, setMode] = useState<SiteMode>("checking");
   const [modal, setModal] = useState<"birth" | "about" | null>(null);
   const [input, setInput] = useState<ChartInput>({
@@ -296,7 +296,7 @@ export default function App() {
       cancelAnimationFrame(frame);
     };
   }, [view, paused]);
-  function navigate(next: "home" | "reading" | "admin") {
+  function navigate(next: "home" | "reading" | "admin" | "tarot") {
     history.pushState(
       null,
       "",
@@ -328,6 +328,16 @@ export default function App() {
       setNotice("当前浏览器无法进入全屏。");
     }
   }
+  if (view === "tarot")
+    return (
+      <Suspense fallback={<div className="page-loading">正在铺开牌桌…</div>}>
+        <TarotRoom
+          mode={mode}
+          onExit={() => navigate("home")}
+          onAdmin={() => navigate("admin")}
+        />
+      </Suspense>
+    );
   if (view === "admin")
     return (
       <Suspense
@@ -375,7 +385,8 @@ export default function App() {
           <button className="active" onClick={() => navigate("home")}>
             观星
           </button>
-          <button onClick={startReading}>排一张命盘</button>
+          <button onClick={startReading}>紫微命盘</button>
+          <button onClick={() => navigate("tarot")}>塔罗问事</button>
           <button onClick={() => begin()}>我的解读</button>
           <button onClick={() => setModal("about")}>关于</button>
         </nav>
@@ -418,14 +429,8 @@ export default function App() {
             <button className="primary hero-cta" onClick={startReading}>
               展开我的星图 <ArrowUpRight size={22} />
             </button>
-            <button
-              className="sample-button"
-              onClick={() =>
-                mode === "static" ? begin(sampleInput, true) : begin()
-              }
-            >
-              {mode === "static" ? "先看一张示例" : "继续我的解读"}{" "}
-              <span>→</span>
+            <button className="sample-button" onClick={() => navigate("tarot")}>
+              抽一组塔罗 <span>→</span>
             </button>
           </div>
           <div className="hero-footnote">

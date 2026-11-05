@@ -20,3 +20,9 @@
 - 原字体不包含部分装饰符号与 Emoji，由系统字体回退。访客自行输入及 AI 动态文本中的其他汉字也由系统字体回退。
 - 许可：SIL Open Font License 1.1；版权声明与完整许可保留在 [OFL.txt](../public/assets/fonts/OFL.txt)。许可取自 [Google Fonts 官方仓库](https://github.com/google/fonts/blob/main/ofl/notoserifsc/OFL.txt)。
 - 字体由站点自托管，页面无需连接 Google 字体服务。
+
+## `public/assets/tarot/`
+
+78 张 Rider–Waite–Smith 原版（1909 Roses & Lilies）扫描，由 Wikimedia Commons 自托管下载为 500px JPEG 缩略图；下载日 2026-11-05。各文件页面标示 Public domain，画师 Pamela Colman Smith。完整的原始文件页、下载 URL、版本和 SHA-256 校验值逐张记录在 [sources.json](../public/assets/tarot/sources.json)。选用原版扫描，未使用现代重绘、上色或带品牌水印的牌面。
+
+来源类别：[Wikimedia Commons / 1909 Roses & Lilies](<https://commons.wikimedia.org/wiki/Category:Rider-Waite_tarot_deck_(Roses_%26_Lilies)>)。牌背为本项目自行编写的 SVG 几何图形，洗牌、选牌与翻牌动画为 CSS 实现；本次未调用付费图像生成服务。

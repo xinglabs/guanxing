@@ -1,3 +1,4 @@
+import type { TarotReading } from "../src/lib/tarot";
 import type { ChartInput } from "../src/lib/chart";
 
 export type Currency = "USD" | "CNY";
@@ -14,6 +15,7 @@ export interface ModelProfile {
   dailyCostLimit: number;
 }
 export interface Session {
+  tarot?: TarotReading | null;
   id: string;
   title: string;
   birth: ChartInput | null;

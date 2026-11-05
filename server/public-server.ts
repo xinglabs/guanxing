@@ -230,7 +230,7 @@ export function createPublicApiServer(options: PublicServerOptions) {
           const settings = await store.getSiteSettings();
           return reply(res, 200, {
             ok: true,
-            version: "3.4.0",
+            version: "3.5.0",
             mode: "public",
             needsSetup: !(await store.hasOwner()),
             authenticated: Boolean(user),
@@ -416,6 +416,25 @@ export function createPublicApiServer(options: PublicServerOptions) {
             );
           fail(404, "管理接口不存在。");
         }
+        if (path === "/api/tarot" && method === "POST") {
+          const data = await body(req);
+          return reply(res, 201, {
+            session: await scoped.createTarotSession(
+              string(data.requestId, "请求标识", 36, 36),
+              data,
+            ),
+          });
+        }
+        const tarotMatch = path.match(/^\/api\/tarot\/([^/]+)\/reveal$/);
+        if (tarotMatch && method === "POST") {
+          const data = await body(req);
+          return reply(res, 200, {
+            session: await scoped.revealTarotSession(
+              tarotMatch[1],
+              data.selection,
+            ),
+          });
+        }
         if (path === "/api/sessions" && method === "GET")
           return reply(res, 200, { sessions: await scoped.listSessions() });
         if (path === "/api/sessions" && method === "POST") {
@@ -594,6 +613,10 @@ export function createPublicApiServer(options: PublicServerOptions) {
               fail(409, "请求标识已用于另一个任务，请重新提交。");
             return reply(res, 202, { job: visibleJob(user, previous) });
           }
+          const targetSession = await scoped.getSession(match[1]);
+          if (!targetSession) fail(404, "对话不存在。");
+          if (targetSession.tarot && targetSession.tarot.status !== "revealed")
+            fail(409, "请先选好并揭示这组牌，再开始解读。");
           let modelId: string | undefined;
           // The server chooses a configured service; visitors do not choose models or prices.
           for (const profile of await store.listModels()) {

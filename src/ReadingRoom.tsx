@@ -1,3 +1,4 @@
+import ReadingText from "./ReadingText";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
@@ -65,43 +66,6 @@ const isActive = (job: AgentJob | null) =>
   Boolean(job && ["queued", "running"].includes(job.status));
 const errorText = (e: unknown) =>
   e instanceof Error ? e.message : "暂时没有完成，请稍后再试。";
-
-/** Render model text as text, never HTML. Small Markdown vocabulary keeps reports readable. */
-function ReadingText({ text }: { text: string }) {
-  const inline = (line: string) =>
-    line
-      .split(/(\*\*[^*]+\*\*)/g)
-      .map((part, i) =>
-        part.startsWith("**") && part.endsWith("**") ? (
-          <strong key={i}>{part.slice(2, -2)}</strong>
-        ) : (
-          part
-        ),
-      );
-  return (
-    <div className="reading-prose">
-      {text
-        .split(/\n\s*\n/)
-        .filter(Boolean)
-        .map((block, index) => (
-          <div key={index}>
-            {block.split("\n").map((line, i) =>
-              /^#{1,6}\s/.test(line) ? (
-                <h3 key={i}>{inline(line.replace(/^#+\s/, ""))}</h3>
-              ) : /^[-*]\s/.test(line) ? (
-                <p className="reading-list-line" key={i}>
-                  <span>·</span>
-                  {inline(line.replace(/^[-*]\s/, ""))}
-                </p>
-              ) : (
-                <p key={i}>{inline(line)}</p>
-              ),
-            )}
-          </div>
-        ))}
-    </div>
-  );
-}
 
 export default function ReadingRoom({
   initialBirth,
@@ -238,6 +202,10 @@ export default function ReadingRoom({
     setError(errorText(e));
   }
   function applyDetail(data: SessionDetail) {
+    if (data.session.tarot) {
+      location.hash = "tarot/" + data.session.id;
+      return;
+    }
     setMessages(data.messages);
     setBirth(data.session.birth);
     setIsDemo(false);
@@ -298,10 +266,15 @@ export default function ReadingRoom({
       hosted ? api.activeJobs() : Promise.resolve({ jobs: [] as AgentJob[] }),
     ]);
     if (!valid(version)) return;
-    setSessions(recordData.sessions);
+    const chartSessions = recordData.sessions.filter((s) => !s.tarot);
+    setSessions(chartSessions);
     setModels(modelData.models);
     setMemories(memoryData.memories);
-    setJob(jobData.jobs.find((j) => isActive(j)) || null);
+    setJob(
+      jobData.jobs.find(
+        (j) => isActive(j) && chartSessions.some((s) => s.id === j.sessionId),
+      ) || null,
+    );
     if (restore && !restored.current) {
       restored.current = true;
       const inHash = location.hash.match(/^#reading\/([A-Za-z0-9_-]+)$/)?.[1];
@@ -313,10 +286,14 @@ export default function ReadingRoom({
       } catch {
         /* Storage is optional. */
       }
-      const wanted = inHash || jobData.jobs[0]?.sessionId || saved;
+      const wanted =
+        inHash ||
+        jobData.jobs.find((j) =>
+          chartSessions.some((s) => s.id === j.sessionId),
+        )?.sessionId ||
+        saved;
       const chosen =
-        recordData.sessions.find((s) => s.id === wanted) ||
-        recordData.sessions[0];
+        chartSessions.find((s) => s.id === wanted) || chartSessions[0];
       if (chosen) await openSession(chosen.id);
     }
   }
@@ -888,6 +865,14 @@ export default function ReadingRoom({
         </span>
         {!requiresEntry && (
           <div className="reader-header-actions">
+            <button
+              onClick={() => {
+                location.hash = "tarot";
+              }}
+              aria-label="塔罗问事"
+            >
+              <span>塔罗问事</span>
+            </button>
             <button
               aria-label="新的星图"
               disabled={busy || uncertain || localRunning || loadingChart}

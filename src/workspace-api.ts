@@ -1,3 +1,4 @@
+import type { TarotReading } from "./lib/tarot";
 import type { AdminUsageReport } from "./lib/admin-usage";
 import type { ChartInput } from "./lib/chart";
 
@@ -18,6 +19,7 @@ export interface ModelProfile {
 }
 export type ModelDraft = Omit<ModelProfile, "id" | "hosted">;
 export interface Session {
+  tarot?: TarotReading | null;
   id: string;
   title: string;
   birth: ChartInput | null;
@@ -266,6 +268,17 @@ export const workspaceApi = {
     }),
   account: () => request<AccountUsage>("/account"),
   logout: () => request<{ ok: true }>("/auth/logout", { method: "POST" }),
+  createTarot: (body: {
+    requestId: string;
+    question: string;
+    spreadId: string;
+    reversedAllowed: boolean;
+  }) => request<{ session: Session }>("/tarot", { method: "POST", body }),
+  revealTarot: (id: string, selection: number[]) =>
+    request<{ session: Session }>(`/tarot/${idPath(id)}/reveal`, {
+      method: "POST",
+      body: { selection },
+    }),
   sessions: () => request<{ sessions: Session[] }>("/sessions"),
   createSession: (body: { title?: string; birth?: ChartInput }) =>
     request<{ session: Session }>("/sessions", { method: "POST", body }),

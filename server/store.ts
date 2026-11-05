@@ -1,3 +1,4 @@
+import { createTarotState, publicTarot, revealTarot } from "./tarot";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import type { ChartInput } from "../src/lib/chart";
@@ -27,6 +28,7 @@ const session = (r: Row): Session => ({
   id: r.id,
   title: r.title,
   birth: r.birth,
+  tarot: r.tarot ? publicTarot(r.tarot) : null,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
 });
@@ -151,6 +153,7 @@ export class Store {
         CREATE TABLE IF NOT EXISTS auth_sessions (token_hash text PRIMARY KEY,expires_at timestamptz NOT NULL);
         CREATE TABLE IF NOT EXISTS models (id text PRIMARY KEY,profile jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
         CREATE TABLE IF NOT EXISTS sessions (id text PRIMARY KEY,title text NOT NULL,birth jsonb,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());
+        ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tarot jsonb;
         CREATE TABLE IF NOT EXISTS messages (id text PRIMARY KEY,session_id text NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,role text NOT NULL CHECK(role IN ('user','assistant')),content text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
         CREATE TABLE IF NOT EXISTS runs (id text PRIMARY KEY,session_id text NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,model_id text NOT NULL,status text NOT NULL CHECK(status IN ('running','completed','failed','cancelled')),steps integer NOT NULL DEFAULT 0,error text,events jsonb NOT NULL DEFAULT '[]',created_at timestamptz NOT NULL DEFAULT now());
         CREATE TABLE IF NOT EXISTS memories (id text PRIMARY KEY,session_id text REFERENCES sessions(id) ON DELETE CASCADE,content text NOT NULL,status text NOT NULL CHECK(status IN ('pending','active')),embedding vector(768),created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());
@@ -461,6 +464,79 @@ export class Store {
       ],
     );
     return session(r.rows[0]);
+  }
+  async createTarotSession(id: string, input: Record<string, unknown>) {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        id,
+      )
+    )
+      throw new StoreError(400, "请求标识不正确。");
+    const state = createTarotState(input);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", [
+        this.userId,
+      ]);
+      const existing = await client.query(
+        "SELECT * FROM sessions WHERE id=$1",
+        [id],
+      );
+      if (existing.rowCount) {
+        const row = existing.rows[0];
+        if (
+          row.user_id !== this.userId ||
+          !row.tarot ||
+          row.tarot.question !== state.question ||
+          row.tarot.spreadId !== state.spreadId ||
+          row.tarot.reversedAllowed !== state.reversedAllowed
+        )
+          throw new StoreError(409, "请求标识已使用，请开启新一轮。");
+        await client.query("COMMIT");
+        return session(row);
+      }
+      const count = await client.query(
+        "SELECT count(*) FROM sessions WHERE user_id=$1",
+        [this.userId],
+      );
+      if (Number(count.rows[0].count) >= 200)
+        throw new StoreError(400, "最多保留 200 个对话，请先删除旧记录。");
+      const r = await client.query(
+        "INSERT INTO sessions(id,title,birth,user_id,tarot) VALUES($1,$2,NULL,$3,$4) RETURNING *",
+        [id, "塔罗 · " + state.question.slice(0, 60), this.userId, state],
+      );
+      await client.query("COMMIT");
+      return session(r.rows[0]);
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+  async revealTarotSession(id: string, selection: unknown) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const r = await client.query(
+        "SELECT * FROM sessions WHERE id=$1 AND user_id=$2 FOR UPDATE",
+        [id, this.userId],
+      );
+      if (!r.rows[0]?.tarot) throw new StoreError(404, "塔罗记录不存在。");
+      const reading = revealTarot(r.rows[0].tarot, selection);
+      const updated = await client.query(
+        "UPDATE sessions SET tarot=$1,updated_at=now() WHERE id=$2 AND user_id=$3 RETURNING *",
+        [reading, id, this.userId],
+      );
+      await client.query("COMMIT");
+      return session(updated.rows[0]);
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
   }
   async getSession(id: string) {
     const r = await this.pool.query(
