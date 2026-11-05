@@ -650,3 +650,40 @@ test("a selected daily period reaches the first model request even if it never c
   });
   assert.equal(s.runs[0].steps, 1);
 });
+
+test("conversational follow-up keeps corrections, chart data and metering in one existing run", async () => {
+  const s = new FakeStore();
+  await s.addMessage("session", "user", "我关心工作。");
+  await s.addMessage(
+    "session",
+    "assistant",
+    "按命盘推论，可能更适合稳定环境。",
+  );
+  const content = "这点不像我，我现在在创业。具体说说怎么理解？";
+  let calls = 0;
+  await runAgent({
+    ...args(s),
+    content,
+    fetcher: async (_url, init) => {
+      calls++;
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.messages.at(-1).content, content);
+      assert.ok(
+        body.messages.some(
+          (m: any) => m.role === "assistant" && m.content.includes("稳定环境"),
+        ),
+      );
+      assert.match(body.messages[0].content, /认真修正先前解释/);
+      assert.match(body.messages[0].content, /不为简短而漏掉明确要求/);
+      assert.equal(
+        JSON.parse(body.messages[1].content).attachedChart.palaces.length,
+        12,
+      );
+      return answer("以你补充的创业情况为准，我们接着看这个问题。");
+    },
+  });
+  assert.equal(calls, 1);
+  assert.equal(s.usage.length, 1);
+  assert.equal(s.runs.length, 1);
+  assert.equal(s.memories.length, 0);
+});

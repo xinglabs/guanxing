@@ -342,6 +342,16 @@ test(
     await run(input.question);
     await run("把刚才的建议说具体一点");
     assert.equal(requests.length, 2);
+    assert.match(
+      requests[0].messages[0].content,
+      /几张牌是呼应、制约还是提示不同选择/,
+    );
+    assert.ok(
+      requests[1].messages.some(
+        (m: any) =>
+          m.role === "assistant" && m.content.includes("本地测试回复"),
+      ),
+    );
     for (const request of requests) {
       assert.deepEqual(request.tools.map((x: any) => x.function.name).sort(), [
         "propose_memory",
@@ -407,6 +417,16 @@ test(
       429,
     );
     assert.equal(requests.length, 2);
+    assert.match(
+      requests[0].messages[0].content,
+      /几张牌是呼应、制约还是提示不同选择/,
+    );
+    assert.ok(
+      requests[1].messages.some(
+        (m: any) =>
+          m.role === "assistant" && m.content.includes("本地测试回复"),
+      ),
+    );
     assert.deepEqual(
       (await good("alice", `/sessions/${requestId}`)).session.tarot,
       snapshot,

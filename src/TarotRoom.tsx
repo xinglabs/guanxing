@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import { Mark, Modal } from "./chart-ui";
 import ReadingText from "./ReadingText";
+import ReadingReply from "./ReadingReply";
+import { appendConversationDraft } from "./lib/conversation";
 import {
   workspaceApi as api,
   WorkspaceError,
@@ -95,6 +97,7 @@ export default function TarotRoom({
   const [flights, setFlights] = useState<{ x: number; y: number }[]>([]),
     [pollTick, setPollTick] = useState(0),
     [pollError, setPollError] = useState(false);
+  const composer = useRef<HTMLTextAreaElement>(null);
   const alive = useRef(true),
     epoch = useRef(0),
     lock = useRef(false),
@@ -121,6 +124,22 @@ export default function TarotRoom({
     running = active(job),
     signedIn = !!health?.authenticated;
   const valid = (v: number) => alive.current && epoch.current === v;
+  function continueWith(question: string) {
+    if (busy || running || pending.current) return;
+    const next = appendConversationDraft(draft, question);
+    if (next === null) {
+      setError("输入框里还有较长的内容，请先发送或删减后再添加追问。");
+      return;
+    }
+    setDraft(next);
+    requestAnimationFrame(() => {
+      composer.current?.focus();
+      composer.current?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+    });
+  }
   function address(id?: string) {
     history.replaceState(
       null,
@@ -695,6 +714,17 @@ export default function TarotRoom({
                     </label>
                   ))}
                 </fieldset>
+                <div className="tarot-spread-guide" aria-live="polite">
+                  <span>这组牌会看</span>
+                  <p>{spread.positions.join(" → ")}</p>
+                  <small>
+                    {spreadId === "choice"
+                      ? "在问题里写清 A 和 B 分别是什么，比如留下或换工作。"
+                      : spreadId === "relationship"
+                        ? "可以补充你们目前的相处情况，不必提供对方的私人信息。"
+                        : "一句问题就能开始；如果有背景或想看的时间范围，也可以一起写下。"}
+                  </small>
+                </div>
                 <div className="tarot-start-footer">
                   <label className="tarot-check">
                     <input
@@ -930,7 +960,7 @@ export default function TarotRoom({
                 {!messages.length && !running ? (
                   <div className="tarot-reading-intro">
                     <p>
-                      牌位、正逆位和你最初的问题会一起参与解读。看完整组之后，也可以接着聊其中一点。
+                      先看这组牌一起在说什么，再聊你最在意的细节。哪里没听明白、哪里与你的情况不同，都可以接着说。
                     </p>
                     <button
                       className="primary"
@@ -946,17 +976,37 @@ export default function TarotRoom({
                     </button>
                   </div>
                 ) : (
-                  messages.map((m) => (
+                  messages.map((m, index) => (
                     <article key={m.id} className={"tarot-message " + m.role}>
                       <span>{m.role === "user" ? "你" : "观星"}</span>
-                      <ReadingText text={m.content} />
+                      {m.role === "assistant" ? (
+                        <ReadingReply
+                          text={m.content}
+                          kind="tarot"
+                          question={[
+                            reading.question,
+                            ...messages
+                              .slice(0, index)
+                              .filter((m) => m.role === "user")
+                              .slice(-1)
+                              .map((m) => m.content),
+                          ].join("\n")}
+                          latest={index === messages.length - 1}
+                          disabled={busy || running || !!pending.current}
+                          onDraft={continueWith}
+                        />
+                      ) : (
+                        <ReadingText text={m.content} />
+                      )}
                     </article>
                   ))
                 )}
                 {running && (
                   <div className="tarot-thinking">
                     <LoaderCircle className="spin" size={16} />
-                    正在结合整组牌面解读…
+                    {messages.some((m) => m.role === "assistant")
+                      ? "正在接着你的问题看这组牌…"
+                      : "正在结合整组牌面解读…"}
                     <button
                       className="tarot-text-button"
                       onClick={() =>
@@ -989,13 +1039,14 @@ export default function TarotRoom({
                 }}
               >
                 <textarea
+                  ref={composer}
                   aria-label="继续询问这组牌"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   maxLength={6000}
                   rows={3}
                   disabled={busy || running || !!pending.current}
-                  placeholder="继续问，或者聊聊其中一张牌……"
+                  placeholder="哪一句想细聊？也可以补充眼前的情况……"
                 />
                 <div>
                   <span>同一组牌，可以慢慢聊。</span>
@@ -1157,7 +1208,7 @@ export default function TarotRoom({
                 disabled={busy || running}
                 onClick={() => {
                   setDetail(null);
-                  setDraft(
+                  continueWith(
                     `结合我的问题，具体说说${face.position}上的${faceCard.name}${face.reversed ? "逆位" : "正位"}。`,
                   );
                 }}

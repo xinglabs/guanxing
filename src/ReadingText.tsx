@@ -18,7 +18,9 @@ export default function ReadingText({ text }: { text: string }) {
         .map((block, index) => (
           <div key={index}>
             {block.split("\n").map((line, i) =>
-              /^#{1,6}\s/.test(line) ? (
+              /^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line) ? (
+                <hr key={i} />
+              ) : /^#{1,6}\s/.test(line) ? (
                 <h3 key={i}>{inline(line.replace(/^#+\s/, ""))}</h3>
               ) : /^[-*]\s/.test(line) ? (
                 <p className="reading-list-line" key={i}>

@@ -1025,20 +1025,18 @@
     display: none;
   }
   .reader-header-actions {
-    gap: 15px;
+    gap: 6px;
+    flex-shrink: 0;
   }
   .reader-header-actions button {
-    font-size: 10px;
+    font-size: 11px;
     gap: 5px;
-  }
-  .reader-header-actions button:first-child > span {
-    display: none;
-  }
-  .reader-header-actions button:last-child > span {
-    max-width: 65px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    min-width: 36px;
+    justify-content: center;
     white-space: nowrap;
+  }
+  .reader-header-actions button:not(:first-child) > span {
+    display: none;
   }
   .reader-mobile-tabs {
     position: sticky;

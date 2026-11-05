@@ -1,4 +1,6 @@
 import ReadingText from "./ReadingText";
+import ReadingReply from "./ReadingReply";
+import { appendConversationDraft } from "./lib/conversation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
@@ -154,6 +156,28 @@ export default function ReadingRoom({
   }, [birth]);
   const currentPalace = chart?.palaces.find((p) => p.branch === selected);
   const valid = (version: number) => alive.current && epoch.current === version;
+
+  function continueWith(question: string) {
+    if (busy || running || uncertain || checking || loadingChart) return;
+    const next = appendConversationDraft(
+      draft,
+      question,
+      periodMode === "free" ? 6000 : 5900,
+    );
+    if (next === null) {
+      setNotice("输入框里还有较长的内容，请先发送或删减后再添加追问。");
+      return;
+    }
+    setDraft(next);
+    setMobileTab("chat");
+    requestAnimationFrame(() => {
+      composer.current?.focus();
+      composer.current?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+    });
+  }
 
   function clearPrivate() {
     epoch.current++;
@@ -1074,7 +1098,7 @@ export default function ReadingRoom({
                     <p>
                       可以看整张命盘，也可以只聊一个问题。
                       <br />
-                      不用懂星曜，不用选题目，想到什么就问什么。
+                      不用懂星曜。想问细一点，或觉得哪里不像你，都可以直说。
                     </p>
                     <div className="reader-starters">
                       {[
@@ -1097,7 +1121,7 @@ export default function ReadingRoom({
                     </div>
                   </div>
                 ) : (
-                  messages.map((message) => (
+                  messages.map((message, index) => (
                     <article
                       className={`reader-message ${message.role}`}
                       key={message.id}
@@ -1112,7 +1136,29 @@ export default function ReadingRoom({
                           </>
                         )}
                       </div>
-                      <ReadingText text={message.content} />
+                      {message.role === "assistant" ? (
+                        <ReadingReply
+                          text={message.content}
+                          kind="ziwei"
+                          question={
+                            messages
+                              .slice(0, index)
+                              .filter((m) => m.role === "user")
+                              .at(-1)?.content || ""
+                          }
+                          latest={index === messages.length - 1 && !pendingText}
+                          disabled={
+                            busy ||
+                            running ||
+                            uncertain ||
+                            checking ||
+                            loadingChart
+                          }
+                          onDraft={continueWith}
+                        />
+                      ) : (
+                        <ReadingText text={message.content} />
+                      )}
                     </article>
                   ))
                 )}
@@ -1131,7 +1177,9 @@ export default function ReadingRoom({
                     </span>
                     {currentJob?.status === "queued"
                       ? "正在等候解读，稍后会继续…"
-                      : "正在读你的星图…"}
+                      : messages.some((m) => m.role === "assistant")
+                        ? "正在接着你的问题看命盘…"
+                        : "正在读你的星图…"}
                     <small>
                       {hosted
                         ? "离开页面也会继续，稍后可在「我的解读」查看。"
@@ -1355,7 +1403,7 @@ export default function ReadingRoom({
                     maxLength={periodMode !== "free" ? 5900 : 6000}
                     placeholder={
                       messages.length
-                        ? "继续问，或者聊聊刚才的某一点…"
+                        ? "哪一句想细聊？也可以说说你的实际情况…"
                         : "比如：从这张命盘看，我做事最大的优势是什么？"
                     }
                     value={draft}

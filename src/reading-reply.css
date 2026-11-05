@@ -1,0 +1,123 @@
+.reading-reply {
+  min-width: 0;
+}
+.reading-reply .reading-prose > div:first-child > p:first-child {
+  color: var(--scene-heading, #e3dfd2);
+}
+.reading-reply ::selection {
+  background: #bca77955;
+  color: #fff9e9;
+}
+.reply-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px 16px;
+  border-top: 1px solid #bca77924;
+  margin-top: 22px;
+  padding-top: 10px;
+}
+.reply-tools > span {
+  font: 11px/1.5 var(--serif);
+  color: #92a49e;
+  letter-spacing: 1px;
+}
+.reply-tools button,
+.reply-selected {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  border: 0;
+  padding: 9px 0;
+  color: #ccb98d;
+  background: none;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.reply-tools button:hover,
+.reply-selected:hover {
+  color: #f0dfb6;
+}
+.reply-tools button:focus-visible,
+.reply-selected:focus-visible,
+.reply-passages button:focus-visible {
+  outline: 1px solid #cbb889;
+  outline-offset: 4px;
+}
+.reply-tools button:disabled,
+.reply-passages button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.reply-draft-note {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  color: #81938d;
+  line-height: 1.8;
+}
+.reply-selected {
+  border: 1px solid #bca77970;
+  padding: 8px 12px;
+  margin-top: 12px;
+  background: #182725;
+}
+.reply-passages {
+  border-left: 1px solid #baa47570;
+  padding: 0 0 0 14px;
+  margin-top: 14px;
+}
+.reply-passages small {
+  display: block;
+  color: #96a49d;
+  font-size: 11px;
+  margin-bottom: 7px;
+  line-height: 1.7;
+}
+.reply-passages button {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  gap: 12px;
+  align-items: center;
+  border: 0;
+  border-bottom: 1px solid #bca77924;
+  padding: 12px 0;
+  background: none;
+  color: #cdcfc3;
+  font-size: 12px;
+  line-height: 1.85;
+  cursor: pointer;
+}
+.reply-passages button span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.reply-passages button svg {
+  flex: 0 0 auto;
+  color: #cbb889;
+}
+.reply-passages button:hover {
+  color: #f2e8ce;
+}
+.reading-prose hr {
+  width: 40px;
+  border: 0;
+  border-top: 1px solid #bca77950;
+  margin: 20px 0;
+}
+@media (max-width: 600px) {
+  .reply-tools {
+    gap: 3px 16px;
+  }
+  .reply-tools > span {
+    flex-basis: 100%;
+    padding-top: 3px;
+  }
+  .reply-tools button {
+    min-height: 40px;
+  }
+}

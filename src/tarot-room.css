@@ -1241,3 +1241,26 @@
   color: #beaa7a;
   font-size: 10px;
 }
+
+.tarot-spread-guide {
+  border-left: 1px solid #b9a26e60;
+  padding-left: 14px;
+  margin: 0 0 22px;
+}
+.tarot-spread-guide > span {
+  color: #c5b284;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.tarot-spread-guide p {
+  color: #d8d9ca;
+  font-size: 12px;
+  line-height: 1.9;
+  margin: 7px 0;
+}
+.tarot-spread-guide small {
+  color: #94a49e;
+  font-size: 11px;
+  line-height: 1.8;
+  display: block;
+}
