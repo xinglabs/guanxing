@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, lazy, Suspense } from "react";
-import { ArrowUpRight, Pause, Play, Maximize2, Minimize2 } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { createChart, branches, chartConvention } from "./lib/chart";
 import type { ChartInput } from "./lib/chart";
 import type { AIConfig } from "./lib/ai";
 import type { SiteMode } from "./ReadingRoom";
-import { BirthForm, Mark, Modal } from "./chart-ui";
+import { BirthForm, Modal } from "./chart-ui";
+import HomePortal from "./HomePortal";
 import CelestialAtmosphere from "./CelestialAtmosphere";
 const TarotRoom = lazy(() => import("./TarotRoom"));
 const Workspace = lazy(() => import("./Workspace"));
@@ -189,7 +190,7 @@ export default function App() {
       ? "tarot"
       : location.hash.startsWith("#admin")
         ? "admin"
-        : location.hash.startsWith("#reading") || location.hash === "#agent"
+        : location.hash.startsWith("#reading")
           ? "reading"
           : "home";
   const [view, setView] = useState<"home" | "reading" | "admin" | "tarot">(
@@ -362,117 +363,28 @@ export default function App() {
       </Suspense>
     );
   return (
-    <div ref={scene} className={`app cover-app ${paused ? "paused" : ""}`}>
+    <div
+      ref={scene}
+      className={`app cover-app portal-app ${paused ? "paused" : ""}`}
+    >
       <div className="landscape" />
       <div className="scene-shade" />
       <CelestialAtmosphere paused={paused} />
       <Sky paused={paused} />
       <div className="grain" />
-      <header className="site-header">
-        <button
-          className="brand"
-          onClick={() => navigate("home")}
-          aria-label="观星首页"
-        >
-          <Mark />
-          <span>
-            观星<span className="brand-divider">/</span>
-            <em>紫微</em>
-            <small>GUANXING</small>
-          </span>
-        </button>
-        <nav aria-label="主导航">
-          <button className="active" onClick={() => navigate("home")}>
-            观星
-          </button>
-          <button onClick={startReading}>紫微命盘</button>
-          <button onClick={() => navigate("tarot")}>塔罗问事</button>
-          <button onClick={() => begin()}>我的解读</button>
-          <button onClick={() => setModal("about")}>关于</button>
-        </nav>
-        <div className="header-tools">
-          <button className="cover-enter" onClick={() => begin()}>
-            进入观星 <ArrowUpRight size={15} />
-          </button>
-          <span className="tool-divider" />
-          <button
-            className="icon-button"
-            onClick={() => setPaused((v) => !v)}
-            aria-label={paused ? "开启动效" : "暂停动效"}
-            title={paused ? "开启动效" : "暂停动效"}
-          >
-            {paused ? <Play size={16} /> : <Pause size={16} />}
-          </button>
-          <button
-            className="icon-button fullscreen-button"
-            onClick={() => void toggleFull()}
-            aria-label={full ? "退出全屏" : "进入全屏"}
-          >
-            {full ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-          </button>
-        </div>
-      </header>
-      <main className="home">
-        <div className="side-note">仰 观 天 文 · 俯 察 自 我</div>
-        <div className="hero-copy">
-          <h1>
-            在星辰之间，
-            <br />
-            <span>看见自己。</span>
-          </h1>
-          <p className="hero-description">
-            展开你的命盘，
-            <br />
-            从此刻在意的事聊起。
-          </p>
-          <div className="hero-actions">
-            <button className="primary hero-cta" onClick={startReading}>
-              展开我的星图 <ArrowUpRight size={22} />
-            </button>
-            <button className="sample-button" onClick={() => navigate("tarot")}>
-              抽一组塔罗 <span>→</span>
-            </button>
-          </div>
-          <div className="hero-footnote">
-            {mode === "static"
-              ? "本机排盘，无需登录"
-              : "登录后，开启属于你的星图与解读"}
-          </div>
-        </div>
-        <Astrolabe paused={paused} />
-        <div className="scene-coordinate">
-          <span>星移 · 心定</span>
-          <small>THE SKY WITHIN</small>
-        </div>
-        <footer className="home-footer">
-          <div className="cover-volume">
-            <span>01 / 星图与人</span>
-            <p>
-              星象给你一个视角，
-              <br />
-              人生始终由你书写。
-            </p>
-          </div>
-          <div className="cover-footer-links">
-            <button onClick={() => setModal("about")}>
-              观星手记 <ArrowUpRight size={14} />
-            </button>
-            <a
-              href="https://xinglabs.github.io/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              XINGLABS ↗
-            </a>
-            <button
-              className="cover-admin-link"
-              onClick={() => navigate("admin")}
-            >
-              站点管理
-            </button>
-          </div>
-        </footer>
-      </main>
+      <HomePortal
+        mode={mode}
+        paused={paused}
+        full={full}
+        astrolabe={<Astrolabe paused={paused} />}
+        onZiwei={startReading}
+        onTarot={() => navigate("tarot")}
+        onAbout={() => setModal("about")}
+        onAdmin={() => navigate("admin")}
+        onHome={() => navigate("home")}
+        onPause={() => setPaused((v) => !v)}
+        onFullscreen={() => void toggleFull()}
+      />
       {modal === "birth" && (
         <BirthForm
           initial={input}
@@ -485,7 +397,7 @@ export default function App() {
           <div className="form-heading">
             <span className="chapter">XINGLABS / 第一件公开作品</span>
             <h2>观天，也观己。</h2>
-            <p>一张真实排出的紫微命盘，和一段可以自由展开的对话。</p>
+            <p>一张紫微命盘，或一组塔罗牌。两种方式，陪你把在意的事聊明白。</p>
           </div>
           <div className="about-content">
             <h3>星图如何得来</h3>
@@ -495,9 +407,14 @@ export default function App() {
               围绕实际盘面解释，不改写星曜。
             </p>
             <p>{chartConvention}</p>
+            <h3>塔罗如何开始</h3>
+            <p>
+              不需要出生资料。写下问题、选择牌阵，再从 78 张牌中选牌翻牌。AI
+              根据已经抽到的整组牌解读，追问沿用原牌面；想重新抽牌，就开启新的一组。
+            </p>
             <h3>你的信息留在哪里</h3>
             <p>
-              出生资料先在浏览器中用于排盘。服务器版在你确认排盘后保存命盘，后续对话和你确认的事也保存在自己的账号中；解读时，相关上下文会交给网站配置的
+              出生资料先在浏览器中用于排盘。服务器版保存你确认的命盘或塔罗问题与牌面，后续对话和你确认的事也保存在自己的账号中；解读时，相关上下文会交给网站配置的
               AI 服务。静态演示版的对话与连接密钥只保留在当前页面。
             </p>
             <h3>把答案，带回生活</h3>

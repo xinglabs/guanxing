@@ -380,10 +380,23 @@ test(
     assert.equal(row.requests, 2);
     assert.equal(row.calls, 2);
     assert.equal(row.totalTokens, 300);
-    await good("admin", `/admin/users/${row.userId}/limits`, "PUT", {
-      dailyRunLimit: 20,
-      dailyTokenLimit: 200,
-    });
+    // Job completion is visible just before its worker releases the admin lock.
+    // Retry only the documented busy response; all other failures still fail.
+    let limitsResponse: Awaited<ReturnType<typeof api>> | undefined;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      limitsResponse = await api(
+        "admin",
+        `/admin/users/${row.userId}/limits`,
+        "PUT",
+        {
+          dailyRunLimit: 20,
+          dailyTokenLimit: 200,
+        },
+      );
+      if (limitsResponse.status !== 409) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(limitsResponse?.status, 200, JSON.stringify(limitsResponse));
     assert.equal(
       (
         await api("alice", `/sessions/${requestId}/jobs`, "POST", {

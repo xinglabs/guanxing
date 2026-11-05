@@ -2,11 +2,11 @@
 
 **从一张星图，开始一段有记忆的对话。**
 
-Guanxing V3.5 是 XINGLABS 的开源紫微斗数与塔罗应用。填写出生日期与时辰后，命盘与自由对话在同一页展开。完整版本提供可确认的长期记忆，并将用户页面与管理后台分开。系统管理员统一配置模型，按用户设置每日次数与 Token 上限，并按日期查看每位用户及全站的消耗；普通用户无需配置或查看这些内容。
+Guanxing V3.5.1 是 XINGLABS 的开源紫微斗数与塔罗应用。首页同时提供紫微与塔罗入口，说明所需资料和操作步骤。填写出生日期与时辰后，命盘与自由对话在同一页展开；塔罗只需带着问题抽牌。完整版本提供可确认的长期记忆，并将用户页面与管理后台分开。系统管理员统一配置模型，按用户设置每日次数与 Token 上限，并按日期查看每位用户及全站的消耗；普通用户无需配置或查看这些内容。
 
 [公开体验](https://xinglabs.github.io/guanxing/) · [XINGLABS](https://xinglabs.github.io/) · [本地部署](docs/local-deployment.md) · [服务器部署](docs/server-deployment.md) · [Agent 架构](docs/agent-architecture.md)
 
-![观星封面](docs/screenshots/cover-v3.1-desktop.png)
+![观星双入口首页](docs/screenshots/home-v3.5.1-desktop.jpg)
 
 ![命盘与对话（模拟回复）](docs/screenshots/reading-v3.1-desktop.png)
 

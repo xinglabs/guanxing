@@ -68,7 +68,7 @@ done
 [[ "$ready" == true ]] || gx_die 'The application is not ready. Run ./scripts/server-status.sh and inspect the health status.'
 printf '\nServer is ready. For private first setup, run on your own computer:\n'
 printf '  ssh -N -L 3080:127.0.0.1:3000 root@YOUR_SERVER_IP\n'
-printf 'Then open http://127.0.0.1:3080/#agent\n'
+printf 'Then open http://127.0.0.1:3080/#admin\n'
 printf 'On the server, ./scripts/server-setup-token.sh displays the first-setup token in your terminal.\n'
 if [[ -n "$GX_DOMAIN" ]]; then
   printf 'HTTPS address: https://%s/ (DNS and inbound 80/443 must be ready).\n' "$GX_DOMAIN"
